@@ -19,9 +19,15 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("DevPolicy", policy =>
+        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+});
+
 
 var app = builder.Build();
-
+app.UseCors("DevPolicy");
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
@@ -40,5 +46,26 @@ app.UseAuthorization();
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Home}/{action=Index}/{id?}");
+
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    try
+    {
+        var db = services.GetRequiredService<ApplicationDbContext>();
+        if (db.Database.CanConnect())
+        {
+            Console.WriteLine("Supabase: connessione OK");
+        }
+        else
+        {
+            Console.WriteLine("Supabase: impossibile connettersi al database.");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Supabase: errore durante il test di connessione - {ex.Message}");
+    }
+}
 
 app.Run();
