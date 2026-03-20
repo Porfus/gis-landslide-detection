@@ -1,4 +1,5 @@
 using it.gis_landslide_detection.web.Data;
+using it.gis_landslide_detection.web.Services;
 using Microsoft.EntityFrameworkCore;
 
 using NetTopologySuite;
@@ -24,6 +25,8 @@ builder.Services.AddCors(options =>
     options.AddPolicy("DevPolicy", policy =>
         policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
 });
+builder.Services.AddScoped<ISentinelService, SentinelService>();
+
 
 
 var app = builder.Build();
