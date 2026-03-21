@@ -57,6 +57,10 @@ nunit-*.xml
 .idea/
 *.idea
 
+# Visual Studio
+.vs/
+*.user
+
 # User-specific configuration files
 appsettings.json
 appsettings.Development.json
