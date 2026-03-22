@@ -42,8 +42,8 @@ Contributors
 Built for the Cassini Hackathon, a challenge focused on applying Earth Observation data to real-world problems.
 
     Name        |     GitHub       |         Role
-Luca Porfiri    |  @Porfus         |  Lead Developer / Project Architect
-Tommaso Raganini|  @TommasoRaganini|  Core Contributor/ Backend Developer
-Ardit Ceno      |  @ArditCeno      |  Frontend Developer & UI/UX Specialist
+    Luca Porfiri    |  @Porfus         |  Lead Developer / Project Architect
+    Tommaso Raganini|  @TommasoRaganini|  Core Contributor/ Backend Developer
+    Ardit Ceno      |  @ArditCeno      |  Frontend Developer & UI/UX Specialist
 
 Link https: https://arditceno.github.io/gis-landslide-detection/
