@@ -20,13 +20,11 @@ IFFI Records — Historical Italian Landslide Inventory data identifying high-ri
 
 Each trail is assigned one of three states, updated in real time:
 
-State  |  Indicator  |  Meaning
+ State  |  Indicator  |         Meaning
+ Safe   |  Green      | Standard conditions. Trail is clear.
+ Caution|  Orange     | Elevated risk due to recent rainfall or soil saturation.
+ Danger |  Red        |High-risk zone. Animated markers indicate immediate hazard.
 
-Safe   |  Green      | Standard conditions. Trail is clear.
-
-Caution|  Orange     | Elevated risk due to recent rainfall or soil saturation.
-
-Danger |  Red        |High-risk zone. Animated markers indicate immediate hazard.
 
 Clicking any trail segment opens a popup with granular details: rainfall intensity, soil moisture readings, and the historical IFFI risk classification for that zone.
 
@@ -41,7 +39,7 @@ Mobile-First UI — Designed for field use where connectivity and screen space a
 Contributors
 Built for the Cassini Hackathon, a challenge focused on applying Earth Observation data to real-world problems.
 
-    Name        |     GitHub       |         Role
+    Name            |     GitHub       |         Role
     Luca Porfiri    |  @Porfus         |  Lead Developer / Project Architect
     Tommaso Raganini|  @TommasoRaganini|  Core Contributor/ Backend Developer
     Ardit Ceno      |  @ArditCeno      |  Frontend Developer & UI/UX Specialist
