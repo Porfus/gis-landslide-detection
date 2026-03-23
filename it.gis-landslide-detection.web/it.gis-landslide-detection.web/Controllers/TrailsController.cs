@@ -72,6 +72,7 @@ namespace it.gis_landslide_detection.web.Controllers
             int precipScore = weather?.PrecipitationScore ?? 85;
             double precipMmh = weather?.PrecipitationMmh ?? 47.0;
             string meteoSrc = weather?.Source ?? "fallback";
+            double pastPrecipitationMm = weather?.PastPrecipitationMm ?? 60.0;
 
             // Calcolo score pesato
             double histScore = iffiResult.HasRisk ? 100.0 : 0.0;
@@ -116,6 +117,7 @@ namespace it.gis_landslide_detection.web.Controllers
                 Precipitation = precipScore,
                 PrecipitationMmh = precipMmh,
                 WeatherSource = meteoSrc,
+                PastPrecipitationMm = pastPrecipitationMm
             });
         }
 
