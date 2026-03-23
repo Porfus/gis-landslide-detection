@@ -25,6 +25,10 @@ namespace it.gis_landslide_detection.web.Data
             modelBuilder.Entity<IffiZone>()
                 .Property(z => z.Geom)
                 .HasColumnType("geometry");
+
+            modelBuilder.Entity<HikingTrail>()
+                .Property(t => t.Geom)
+                .HasColumnType("geometry");
         }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -34,5 +38,7 @@ namespace it.gis_landslide_detection.web.Data
         public DbSet<HikingPoint> HikingPoints { get; set; }
 
         public DbSet<IffiZone> IffiZones { get; set; }
+
+        public DbSet<HikingTrail> HikingTrails { get; set; }
     }
 }
