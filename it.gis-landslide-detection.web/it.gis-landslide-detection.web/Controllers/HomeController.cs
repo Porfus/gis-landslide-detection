@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using it.gis_landslide_detection.web.Data;
 using it.gis_landslide_detection.web.Models;
+using it.gis_landslide_detection.web.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace it.gis_landslide_detection.web.Controllers
@@ -10,16 +11,29 @@ namespace it.gis_landslide_detection.web.Controllers
         private readonly ILogger<HomeController> _logger;
         
         private readonly ApplicationDbContext _context;
-        public HomeController(ILogger<HomeController> logger, ApplicationDbContext context)
+        private readonly IWeatherService _weatherService;
+        public HomeController(ILogger<HomeController> logger, ApplicationDbContext context, IWeatherService weatherService)
         {
             _logger = logger;
             _context = context;
+            _weatherService = weatherService;
         }
 
-        public IActionResult Index()
+        //public IActionResult Index()
+        //{
+        //    var count = _context.HikingPoints.Count();
+        //    Console.WriteLine($"Punti nel DB: {count}");
+        //    return View();
+        //}
+
+
+        public async Task<IActionResult> Index()
         {
-            var count = _context.HikingPoints.Count();
-            Console.WriteLine($"Punti nel DB: {count}");
+            var weather = await _weatherService
+                .GetCurrentPrecipitationAsync(40.72384970631184, -74.01526921338605);
+            Console.WriteLine($"Meteo: {weather?.PrecipitationMmh} mm/h " +
+                              $"(score {weather?.PrecipitationScore}) " +
+                              $"da {weather?.Source}");
             return View();
         }
 

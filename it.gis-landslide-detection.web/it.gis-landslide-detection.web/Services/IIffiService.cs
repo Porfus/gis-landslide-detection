@@ -1,4 +1,4 @@
-﻿using it.gis_landslide_detection.web.Models;
+using it.gis_landslide_detection.web.Models;
 
 namespace it.gis_landslide_detection.web.Services
 {
@@ -16,9 +16,15 @@ namespace it.gis_landslide_detection.web.Services
         long TrailId,
         string? TrailName,
         bool HasRisk,
-        double CriticalPointLat,   // coordinate del punto più pericoloso
-        double CriticalPointLng,
+        string Message,
+        double ReferenceLat,   // coordinate del punto più pericoloso o del centroide del sentiero
+        double ReferenceLng,
         string? IffiTipo,          // tipo di frana trovato
         int ZoneCount              // quante zone IFFI interseca il trail
     );
+
+    public interface ITrailRiskCalculator
+    {
+        TrailRiskResult CalculateRisk(HikingTrail trail, IReadOnlyCollection<IffiZone> intersectingZones);
+    }
 }

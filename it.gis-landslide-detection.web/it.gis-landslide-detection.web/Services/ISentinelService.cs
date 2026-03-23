@@ -5,6 +5,7 @@ namespace it.gis_landslide_detection.web.Services;
 public interface ISentinelService
 {
     Task<SentinelData?> GetSoilMoistureAsync();
+    Task<SentinelData?> GetSoilMoistureForPointAsync(double queryLat, double queryLng);
 }
 public record SentinelData(
     int    SoilMoistureScore,   // 0-100

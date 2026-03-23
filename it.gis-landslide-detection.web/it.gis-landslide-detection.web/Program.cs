@@ -22,6 +22,9 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddControllersWithViews();
 
 builder.Services.AddScoped<IIffiService, IffiService>();
+builder.Services.AddScoped<ITrailRiskCalculator, TrailRiskCalculator>();
+builder.Services.AddScoped<IWeatherService, WeatherService>();
+
 
 builder.Services.AddCors(options =>
 {
@@ -35,6 +38,13 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo { Title = "GIS Landslide API", Version = "v1" });
 });
+
+builder.Services.AddHttpClient("openmeteo", client =>
+{
+    client.BaseAddress = new Uri("https://api.open-meteo.com");
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
+
 
 var app = builder.Build();
 

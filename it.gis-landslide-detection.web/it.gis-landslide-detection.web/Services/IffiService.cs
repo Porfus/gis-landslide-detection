@@ -1,4 +1,4 @@
-﻿using it.gis_landslide_detection.web.Data;
+using it.gis_landslide_detection.web.Data;
 using it.gis_landslide_detection.web.Models;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite;
@@ -9,18 +9,12 @@ namespace it.gis_landslide_detection.web.Services
     public class IffiService : IIffiService
     {
         private readonly ApplicationDbContext _context;
+        private readonly ITrailRiskCalculator _riskCalculator;
 
-        // Lista dei tipi di frana rilevanti per l'alert
-        private static readonly string[] TipiPericolosi = {
-            "Colamento rapido",
-            "Crollo/Ribaltamento",
-            "Scivolamento rotazionale/traslativo",
-            "Complesso"
-        };
-
-        public IffiService(ApplicationDbContext context)
+        public IffiService(ApplicationDbContext context, ITrailRiskCalculator riskCalculator)
         {
             _context = context;
+            _riskCalculator = riskCalculator;
         }
 
         public async Task<IffiZone?> GetZoneAsync(double lat, double lng)
@@ -31,49 +25,63 @@ namespace it.gis_landslide_detection.web.Services
             return await _context.IffiZones
                 .Where(z => z.Geom != null 
                          && z.NomeTipo != null
-                         && TipiPericolosi.Contains(z.NomeTipo) // filtro tipo
+                         && TrailRiskCalculator.TipiPericolosi.Contains(z.NomeTipo) // filtro tipo
                          && z.Geom.Contains(punto))
                 .FirstOrDefaultAsync();
         }
 
         public async Task<TrailRiskResult?> GetTrailRiskAsync(long trailId)
         {
-            // 1. Carica il trail dal DB
             var trail = await _context.HikingTrails
                 .FirstOrDefaultAsync(t => t.Id == trailId);
             
             if (trail?.Geom == null) return null;
 
-            // 2. Trova le zone IFFI pericolose che intersecano il trail
-            var zoneIntersecanti = await _context.IffiZones
-                .Where(z => z.Geom != null 
-                         && z.NomeTipo != null
-                         && TipiPericolosi.Contains(z.NomeTipo)
-                         && z.Geom.Intersects(trail.Geom))
+            // 1. Semplificazione della geometria del sentiero per ridurre drasticamente i vertici inviati via SQL
+            // 0.0001 gradi = circa 11 metri di tolleranza, ottimizza le spline in linee rette mantenendo il percorso base
+            var simplifiedTrail = NetTopologySuite.Simplify.TopologyPreservingSimplifier.Simplify(trail.Geom, 0.0001);
+            simplifiedTrail.SRID = 4326; // CRITICAL: Restore SRID dropped by simplifier!
+
+            // 2. Creazione della Bounding Box (rettangolo di selezione)
+            var envelope = simplifiedTrail.EnvelopeInternal;
+            var factory = NetTopologySuite.NtsGeometryServices.Instance.CreateGeometryFactory(4326);
+            var extent = factory.ToGeometry(envelope); // Rende l'envelope una Geometry interrogabile (un poligono 4 angoli)
+            extent.SRID = 4326;
+
+            // 3. Incrementiamo temporaneamente il timeout del DbContext da 30s a 60s per questa specifica unità di lavoro
+            _context.Database.SetCommandTimeout(60);
+
+            // 4. Query spaziale ottimizzata bypassando EF Core.
+            // Quando passiamo parametri geometrici tramite EF Core ({0}, {1}), PostgreSQL genera un 
+            // "Generic Plan" (piano generico) per la query. Avendo a che fare con geometrie, se non conosce 
+            // l'area esatta del perimetro in anticipo, il DB decide (erroneamente) di scartare l'indice e fare un Seq Scan.
+            // Soluzione estrema infallibile: Scriviamo l'envelope direttamente dentro la stringa SQL come WKT letterale (es. 'POLYGON((...))').
+            // In questo modo Postgres genera un "Custom Plan" conoscendo le coordinate precise in anticipo, innescando col 100%
+            // di probabilità l'indice spaziale. Il calcolo finale .Intersects lo facciamo direttamente in RAM lato C# (NetTopologySuite è un fulmine).
+            
+            var wktWriter = new NetTopologySuite.IO.WKTWriter();
+            string extentWkt = wktWriter.Write(extent);
+
+            var rawSql = $@"
+                SELECT * FROM landslide_zones 
+                WHERE nome_tipo IN ('Colamento rapido', 'Crollo/Ribaltamento', 'Scivolamento rotazionale/traslativo', 'Complesso')
+                  AND geom && ST_GeomFromText('{extentWkt}', 4326)
+            ";
+
+            // Usiamo SqlQueryRaw puro e portiamo in ram le (poche) zone candidate trovate col Bounding Box
+            #pragma warning disable EF1000 // Disabilita warning per parametrizzazione, la WKT è sicura in quanto generata da NTS (no SQL-Injection possible)
+            var candidateZones = await _context.IffiZones
+                .FromSqlRaw(rawSql)
                 .ToListAsync();
+            #pragma warning restore EF1000
 
-            if (!zoneIntersecanti.Any())
-                return new TrailRiskResult(trailId, trail.Name, false, 0, 0, null, 0);
+            // 5. Calcolo intersezione esatta lato C# (estremamente veloce, essendo i candidati nell'ordine delle unità/decine)
+            var zoneIntersecanti = candidateZones
+                .Where(z => z.Geom != null && z.Geom.Intersects(simplifiedTrail))
+                .ToList();
 
-            // 3. Calcola il punto di intersezione più critico
-            // Prendi la prima zona (o quella con tipo più pericoloso in base all'ordine dell'array)
-            var zonaPiuPericolosa = zoneIntersecanti
-                .OrderBy(z => Array.IndexOf(TipiPericolosi, z.NomeTipo))
-                .First();
-
-            // 4. Calcola il centroide dell'intersezione tra trail e zona
-            var intersezione = trail.Geom.Intersection(zonaPiuPericolosa.Geom!);
-            var puntoCritico = intersezione.Centroid;
-
-            return new TrailRiskResult(
-                TrailId: trailId,
-                TrailName: trail.Name,
-                HasRisk: true,
-                CriticalPointLat: puntoCritico.Y,  // Y = latitudine
-                CriticalPointLng: puntoCritico.X,  // X = longitudine
-                IffiTipo: zonaPiuPericolosa.NomeTipo,
-                ZoneCount: zoneIntersecanti.Count
-            );
+            // Delega la business logic del calcolo del rischio al Calculator
+            return _riskCalculator.CalculateRisk(trail, zoneIntersecanti);
         }
     }
 }
