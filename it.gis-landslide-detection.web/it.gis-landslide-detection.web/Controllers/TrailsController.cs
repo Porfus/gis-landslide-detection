@@ -117,7 +117,7 @@ namespace it.gis_landslide_detection.web.Controllers
                 Precipitation = precipScore,
                 PrecipitationMmh = precipMmh,
                 WeatherSource = meteoSrc,
-                PastPrecipitationMm = pastPrecipitationMm
+                Past3DaysPrecipitationMm = pastPrecipitationMm
             });
         }
 

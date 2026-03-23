@@ -68,13 +68,17 @@ public class SentinelService : ISentinelService
             }
         }
 
+        var root = doc.RootElement;
+        var periodo = root.TryGetProperty("period", out var periodoEl)
+            ? periodoEl.GetString() ?? ""
+                : "";
+
         return new SentinelData(
             SoilMoistureScore: bestScore,
             VvMeanDb: bestVv,
             SoilMoistureScoreDry: 0,
             DeltaScore: 0,
-            Periodo: doc.RootElement
-                                     .GetProperty("periodo").GetString() ?? "",
+            Periodo: periodo,
             Fonte: "Sentinel-1 SAR grid lookup"
         );
 
