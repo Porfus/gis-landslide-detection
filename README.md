@@ -1,13 +1,13 @@
 # gis-landslide-detection
-GeoHike — GIS Landslide Detection
+GeoSentinel — GIS Landslide Detection
 
 Real-Time Landslide Hazard Monitoring for Mountain Safety
-GeoHike is a GIS-driven decision-support system that translates complex Earth Observation (EO) satellite data and meteorological forecasts into a real-time Danger Index for mountain hiking trails. Instead of raw, technical GIS output, hikers get a single color-coded map they can actually act on — before and during their journey.
+GeoSentinel is a GIS-driven decision-support system that translates complex Earth Observation (EO) satellite data and meteorological forecasts into a real-time Danger Index for mountain hiking trails. Instead of raw, technical GIS output, hikers get a single color-coded map they can actually act on — before and during their journey.
 
 **The Problem**
 
 Mountain trails are regularly threatened by landslides triggered by soil saturation, heavy rainfall, and unstable geological zones. The data to predict these events already exists — satellite readings, weather forecasts, historical records — but it requires expert interpretation that the average hiker simply doesn't have.
-GeoHike solves this by aggregating that data, running it through a risk engine, and surfacing the result as an intuitive visual safety guide.
+GeoSentinel solves this by aggregating that data, running it through a risk engine, and surfacing the result as an intuitive visual safety guide.
 
 **How It Works**
 
