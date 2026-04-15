@@ -12,6 +12,18 @@ public class TrailRiskCalculator : ITrailRiskCalculator
         "Complesso"
     };
 
+    private static double GetHazardScore(string? tipo)
+    {
+        return tipo switch
+        {
+            "Colamento rapido" => 100.0,
+            "Crollo/Ribaltamento" => 80.0,
+            "Scivolamento rotazionale/traslativo" => 60.0,
+            "Complesso" => 40.0,
+            _ => 0.0
+        };
+    }
+
     public TrailRiskResult CalculateRisk(HikingTrail trail, IReadOnlyCollection<IffiZone> intersectingZones)
     {
         if (trail == null) throw new ArgumentNullException(nameof(trail));
@@ -30,7 +42,8 @@ public class TrailRiskCalculator : ITrailRiskCalculator
                 ReferenceLat: sentieroCentroid?.Y ?? 43.098,
                 ReferenceLng: sentieroCentroid?.X ?? 13.003,
                 IffiTipo: null,
-                ZoneCount: 0
+                ZoneCount: 0,
+                HazardScore: 0.0
             );
         }
 
@@ -66,7 +79,8 @@ public class TrailRiskCalculator : ITrailRiskCalculator
             ReferenceLat: puntoCritico.Y,
             ReferenceLng: puntoCritico.X,
             IffiTipo: zonaPiuPericolosa.NomeTipo,
-            ZoneCount: zones.Count
+            ZoneCount: zones.Count,
+            HazardScore: GetHazardScore(zonaPiuPericolosa.NomeTipo)
         );
     }
 }

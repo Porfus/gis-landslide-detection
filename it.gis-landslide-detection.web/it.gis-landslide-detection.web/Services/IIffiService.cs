@@ -20,7 +20,8 @@ namespace it.gis_landslide_detection.web.Services
         double ReferenceLat,   // coordinate del punto più pericoloso o del centroide del sentiero
         double ReferenceLng,
         string? IffiTipo,          // tipo di frana trovato
-        int ZoneCount              // quante zone IFFI interseca il trail
+        int ZoneCount,             // quante zone IFFI interseca il trail
+        double HazardScore         // punteggio di pericolosità basato sul tipo
     );
 
     public interface ITrailRiskCalculator

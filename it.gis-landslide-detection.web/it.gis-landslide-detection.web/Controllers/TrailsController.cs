@@ -75,7 +75,7 @@ namespace it.gis_landslide_detection.web.Controllers
             double pastPrecipitationMm = weather?.PastPrecipitationMm ?? 60.0;
 
             // Calcolo score pesato
-            double histScore = iffiResult.HasRisk ? 100.0 : 0.0;
+            double histScore = iffiResult.HazardScore;
             double riskScore = (histScore * 0.40)
                              + (soilScore * 0.35)
                              + (precipScore * 0.25);
