@@ -69,21 +69,47 @@ namespace it.gis_landslide_detection.web.Controllers
             // Valori con fallback
             int soilScore = sentinel?.SoilMoistureScore ?? 75;
             double vvDb = sentinel?.VvMeanDb ?? -15.0;
-            int precipScore = weather?.PrecipitationScore ?? 85;
-            double precipMmh = weather?.PrecipitationMmh ?? 47.0;
+            string sentinelSrc = sentinel?.Fonte ?? "fallback";
+            
+            int apiScore = weather?.ApiScore ?? 85;
+            double apiMm = weather?.AntecedentPrecipIndex ?? 68.3;
+            int currentRainScore = weather?.CurrentRainScore ?? 60;
+            double precipMmh = weather?.PrecipitationMmh ?? 18.0;
             string meteoSrc = weather?.Source ?? "fallback";
-            double pastPrecipitationMm = weather?.PastPrecipitationMm ?? 60.0;
 
-            // Calcolo score pesato
+            // --- Pesi Dinamici in base al tipo Geofisico ---
+            double wSoil = 0.40;
+            double wApi = 0.35;
+            double wRain = 0.25;
+
+            var tipo = iffiResult.IffiTipo;
+            if (tipo == "Crollo/Ribaltamento")
+            {
+                // Roccia: non si imbeve come il terreno. Conta la pioggia istantanea (fessurazione/pressione idrostatica)
+                wSoil = 0.10;
+                wApi = 0.20;
+                wRain = 0.70;
+            }
+            else if (tipo == "Scivolamento rotazionale/traslativo" || tipo == "Colamento rapido")
+            {
+                // Terreno/Fango: saturazione e pioggia passata sono i trigger primari
+                wSoil = 0.45;
+                wApi = 0.40;
+                wRain = 0.15;
+            }
+
+            // --- Indice di Saturazione Combinato ---
+            double saturationIndex = (soilScore * wSoil) + (apiScore * wApi) + (currentRainScore * wRain);
+
+            // --- Rischio Finale ---
             double histScore = iffiResult.HazardScore;
-            double riskScore = (histScore * 0.40)
-                             + (soilScore * 0.35)
-                             + (precipScore * 0.25);
+            double riskScore = (histScore * 0.35) + (saturationIndex * 0.65);
 
             string level = riskScore switch
             {
-                >= 70 => "CRITICAL",
-                >= 40 => "MEDIUM",
+                >= 75 => "CRITICAL",
+                >= 50 => "HIGH",
+                >= 30 => "MEDIUM",
                 _ => "LOW"
             };
 
@@ -98,26 +124,23 @@ namespace it.gis_landslide_detection.web.Controllers
                 RiskLevel = level,
                 Message = level == "CRITICAL"
                                    ? "Sentiero bloccato: rischio frana critico."
-                                   : level == "MEDIUM"
-                                       ? "Percorrere con cautela."
-                                       : "Sentiero sicuro.",
+                                   : level == "HIGH"
+                                       ? "Sconsigliato: elevata probabilità di instabilità."
+                                       : level == "MEDIUM"
+                                           ? "Percorrere con cautela."
+                                           : "Sentiero sicuro.",
                 // Punto critico da mostrare sulla mappa
                 CriticalPointLat = iffiResult.HasRisk ? queryLat : (double?)null,
                 CriticalPointLng = iffiResult.HasRisk ? queryLng : (double?)null,
-                // Componente 1 — IFFI
-                HistoricalRisk = iffiResult.HasRisk,
-                IffiTipo = iffiResult.IffiTipo,
-                IffiZoneCount = iffiResult.ZoneCount,
-                HistoricalScore = (int)histScore,
-                // Componente 2 — Sentinel
-                SoilMoisture = soilScore,
-                VvMeanDb = vvDb,
-                SentinelSource = sentinel?.Fonte ?? "fallback",
-                // Componente 3 — Meteo
-                Precipitation = precipScore,
-                PrecipitationMmh = precipMmh,
-                WeatherSource = meteoSrc,
-                Past3DaysPrecipitationMm = pastPrecipitationMm
+                
+                // Nuove componenti diagnostiche
+                Components = new 
+                {
+                    Iffi = new { Score = (int)histScore, Weight = 0.35, Tipo = iffiResult.IffiTipo, ZoneCount = iffiResult.ZoneCount },
+                    SoilMoisture = new { Score = soilScore, Weight = Math.Round(wSoil * 0.65, 4), VvDb = Math.Round(vvDb, 2), Source = sentinelSrc },
+                    AntecedentPrecip = new { Score = apiScore, Weight = Math.Round(wApi * 0.65, 4), ApiMm = Math.Round(apiMm, 2), Days = 7, DecayK = 0.85 },
+                    CurrentRain = new { Score = currentRainScore, Weight = Math.Round(wRain * 0.65, 4), Mmh = Math.Round(precipMmh, 2), Source = meteoSrc }
+                }
             });
         }
 

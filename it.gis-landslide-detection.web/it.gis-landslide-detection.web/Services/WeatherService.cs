@@ -1,5 +1,6 @@
 using it.gis_landslide_detection.web.Models;
 using System.Text.Json;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace it.gis_landslide_detection.web.Services
 {
@@ -7,23 +8,33 @@ namespace it.gis_landslide_detection.web.Services
     {
         private readonly IHttpClientFactory _factory;
         private readonly ILogger<WeatherService> _log;
+        private readonly IMemoryCache _cache;
 
         public WeatherService(IHttpClientFactory factory,
-                              ILogger<WeatherService> log)
+                              ILogger<WeatherService> log,
+                              IMemoryCache cache)
         {
             _factory = factory;
             _log = log;
+            _cache = cache;
         }
 
         public async Task<WeatherData?> GetCurrentPrecipitationAsync(
             double lat, double lng)
         {
+            string cacheKey = $"weather:{lat:F2},{lng:F2}";
+            if (_cache.TryGetValue(cacheKey, out WeatherData? cachedData))
+            {
+                _log.LogInformation("Returning Weather data from cache for cell {Lat:F2}, {Lng:F2}", lat, lng);
+                return cachedData;
+            }
+
             try
             {
                 var client = _factory.CreateClient("openmeteo");
                 
-                // Richiede sia le precipitazioni attuali che lo storico dei 3 giorni passati
-                var url = System.FormattableString.Invariant($"/v1/forecast?latitude={lat:F4}&longitude={lng:F4}&current=precipitation&daily=precipitation_sum&past_days=3&forecast_days=1&timezone=auto&timeformat=unixtime");
+                // Richiede precipitazioni attuali e 7 giorni passati
+                var url = System.FormattableString.Invariant($"/v1/forecast?latitude={lat:F4}&longitude={lng:F4}&current=precipitation&daily=precipitation_sum&past_days=7&forecast_days=1&timezone=auto&timeformat=unixtime");
 
                 var res = await client.GetAsync(url);
                 res.EnsureSuccessStatusCode();
@@ -36,36 +47,54 @@ namespace it.gis_landslide_detection.web.Services
                     .GetProperty("precipitation")
                     .GetDouble();
 
-                // Calcolo pioggia pregressa cumulando l'array daily.precipitation_sum dei 3 giorni
                 double pastPrecipitation = 0.0;
+                double antecedentPrecipIndex = 0.0;
+                const double k = 0.85; // decay coefficient
+
                 if (doc.RootElement.TryGetProperty("daily", out var dailyElem) &&
                     dailyElem.TryGetProperty("precipitation_sum", out var precipArray))
                 {
-                    // L'array ha ampiezza 4 (3 giorni passati + oggi). Prendiamo i primi 3 giorni per avere esattamente lo storico pre-oggi
-                    int count = Math.Min(3, precipArray.GetArrayLength());
+                    // L'array ha ampiezza 8 (7 giorni passati + oggi). Prendiamo i primi 7 giorni.
+                    int count = Math.Min(7, precipArray.GetArrayLength());
                     for (int i = 0; i < count; i++)
                     {
                         var val = precipArray[i];
                         if (val.ValueKind != JsonValueKind.Null)
-                            pastPrecipitation += val.GetDouble();
+                        {
+                            double dailyMm = val.GetDouble();
+                            pastPrecipitation += dailyMm;
+                            // Ordine cronologico: indice 0 è 7 giorni fa.
+                            antecedentPrecipIndex = (k * antecedentPrecipIndex) + dailyMm;
+                        }
                     }
                 }
 
-                // Normalizza: intensità attuale >= 50 mm/h = score 100 (peso 30%)
-                double currentScore = Math.Min(100, (mmh / 50.0) * 100.0);
+                // Normalizza: API >= 80 mm = score 100
+                int apiScore = (int)Math.Clamp((antecedentPrecipIndex / 80.0) * 100.0, 0, 100);
                 
-                // Normalizza: perturbazione pregressa cumulati >= 100 mm = score 100 (peso 70%)
-                double pastScore = Math.Min(100, (pastPrecipitation / 100.0) * 100.0);
+                // Normalizza: intensità attuale >= 30 mm/h = score 100
+                int currentRainScore = (int)Math.Clamp((mmh / 30.0) * 100.0, 0, 100);
 
-                int finalScore = (int)((currentScore * 0.3) + (pastScore * 0.7));
+                // Calcolo score combinato
+                int precipitationScore = (int)((apiScore * 0.60) + (currentRainScore * 0.40));
 
-                return new WeatherData(mmh, pastPrecipitation, finalScore, "Open-Meteo");
+                var result = new WeatherData(
+                    mmh, 
+                    pastPrecipitation, 
+                    antecedentPrecipIndex, 
+                    apiScore, 
+                    currentRainScore, 
+                    precipitationScore, 
+                    "Open-Meteo"
+                );
+
+                _cache.Set(cacheKey, result, TimeSpan.FromMinutes(15));
+                return result;
             }
             catch (Exception ex)
             {
-                _log.LogWarning("WeatherService fallback: {msg}", ex.Message);
-                // Fallback hardcoded caso studio luglio 2024 (con finti 115mm regressi per giustificare lo score alto)
-                return new WeatherData(47.0, 115.5, 85, "fallback");
+                _log.LogWarning("WeatherService API fallita: {msg}", ex.Message);
+                return null;
             }
         }
 

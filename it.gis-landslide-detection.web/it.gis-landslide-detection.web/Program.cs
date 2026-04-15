@@ -20,6 +20,9 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
+builder.Services.AddMemoryCache();
+builder.Services.Configure<it.gis_landslide_detection.web.Models.CopernicusApiOptions>(
+    builder.Configuration.GetSection("CopernicusApi"));
 
 builder.Services.AddScoped<IIffiService, IffiService>();
 builder.Services.AddScoped<ITrailRiskCalculator, TrailRiskCalculator>();
@@ -43,6 +46,11 @@ builder.Services.AddHttpClient("openmeteo", client =>
 {
     client.BaseAddress = new Uri("https://api.open-meteo.com");
     client.Timeout = TimeSpan.FromSeconds(5);
+});
+
+builder.Services.AddHttpClient("copernicus", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
 });
 
 

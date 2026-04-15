@@ -12,11 +12,15 @@ public class LandslideController : Controller
 {
     private readonly ApplicationDbContext _context;
     private readonly ISentinelService _sentinelService;
+    private readonly IWeatherService _weatherService;
+    private readonly IIffiService _iffiService;
 
-    public LandslideController(ApplicationDbContext context, ISentinelService sentinelService)
+    public LandslideController(ApplicationDbContext context, ISentinelService sentinelService, IWeatherService weatherService, IIffiService iffiService)
     {
         _context = context;
         _sentinelService = sentinelService;
+        _weatherService = weatherService;
+        _iffiService = iffiService;
     }
 
     /**[HttpGet]
@@ -45,29 +49,72 @@ public class LandslideController : Controller
         var punto    = factory.CreatePoint(new NetTopologySuite.Geometries.Coordinate(lng, lat));
         
 
-        
-        //HARDCODED rik and message
-        bool historicalRisk = (lat >= 43.095 && lat <= 43.101 &&
-                               lng >= 12.997 && lng <= 13.008);
-        double scoreStorico = historicalRisk ? 100.0 : 0.0;
+        // VERIFICA REALE SUL DATABASE IFFI
+        bool historicalRisk = false;
+        string iffiTipo = "Nessun rischio rilevato";
+        double scoreStorico = 0.0;
+
+        try 
+        {
+            var iffiZone = await _iffiService.GetZoneAsync(lat, lng);
+            if (iffiZone != null)
+            {
+                historicalRisk = true;
+                iffiTipo = iffiZone.NomeTipo ?? "Sconosciuto";
+                scoreStorico = iffiTipo switch
+                {
+                    "Colamento rapido" => 100.0,
+                    "Crollo/Ribaltamento" => 80.0,
+                    "Scivolamento rotazionale/traslativo" => 60.0,
+                    "Complesso" => 40.0,
+                    _ => 20.0
+                };
+            }
+        } 
+        catch (Exception)
+        {
+            // Fallback gracefully only if there is a DB connection issue
+            iffiTipo = "Errore Connessione DB (N/A)";
+        }
 
         // sentinel (valori hardcoded se non presenti nel json)
-        var sentinel      = await _sentinelService.GetSoilMoistureAsync();
+        var sentinel      = await _sentinelService.GetSoilMoistureForPointAsync(lat, lng);
         int  soilScore    = sentinel?.SoilMoistureScore ?? 75;
         double vvDb       = sentinel?.VvMeanDb          ?? -15.0;
         double delta      = sentinel?.DeltaScore        ?? 0;
 
-        double precipMmh  = 47.0;
-        int precipitation = 85;
-        
+        var weather       = await _weatherService.GetCurrentPrecipitationAsync(lat, lng);
+        double precipMmh  = weather?.PrecipitationMmh ?? 47.0;
+        int precipitation = weather?.PrecipitationScore ?? 85;
+        int currentRainScore = weather?.CurrentRainScore ?? 60;
+        int apiScore      = weather?.ApiScore ?? 85;
 
-        //Mock calculation
-        double riskScore = (scoreStorico  * 0.40) +
-                           (soilScore  * 0.35) +
-                           (precipitation * 0.25);
+        // CALCOLO AVANZATO CON PESI DINAMICI
+        double wSoil = 0.40;
+        double wApi = 0.35;
+        double wRain = 0.25;
+
+        if (iffiTipo == "Crollo/Ribaltamento")
+        {
+            wSoil = 0.10;
+            wApi = 0.20;
+            wRain = 0.70;
+        }
+        else if (iffiTipo == "Scivolamento rotazionale/traslativo" || iffiTipo == "Colamento rapido")
+        {
+            wSoil = 0.45;
+            wApi = 0.40;
+            wRain = 0.15;
+        }
+
+        double saturationIndex = (soilScore * wSoil) + (apiScore * wApi) + (currentRainScore * wRain);
+
+        double riskScore = (scoreStorico * 0.35) + (saturationIndex * 0.65);
+
         string riskLevel = riskScore switch {
-            >= 70 => "CRITICAL",
-            >= 40 => "MEDIUM",
+            >= 75 => "CRITICAL",
+            >= 50 => "HIGH",
+            >= 30 => "MEDIUM",
             _     => "LOW"
         };
  
@@ -80,7 +127,7 @@ public class LandslideController : Controller
                 ? "Sentiero bloccato: rischio frana critico."
                 : "Percorribile con cautela.",
             historicalRisk: historicalRisk,
-            iffiLevel: "N/A", 
+            iffiLevel: iffiTipo, 
             historicalScore: (int)scoreStorico,
             soilMoisture: soilScore,
             vvMeanDb: vvDb,
