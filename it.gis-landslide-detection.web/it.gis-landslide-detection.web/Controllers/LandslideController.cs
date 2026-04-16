@@ -123,9 +123,13 @@ public class LandslideController : Controller
             lng: lng,
             riskScore: (int)riskScore,
             riskLevel: riskLevel,
-            message: riskLevel == "CRITICAL"
-                ? "Sentiero bloccato: rischio frana critico."
-                : "Percorribile con cautela.",
+            message: riskLevel switch {
+                "CRITICAL" => "⚠️ EMERGENZA: Sentiero chiuso. Rischio frana altissimo.",
+                "HIGH"     => "🚩 PERICOLO: Escursione sconsigliata. Suolo instabile.",
+                "MEDIUM"   => "🔸 ATTENZIONE: Percorribile con cautela. Possibili detriti sul sentiero.",
+                "LOW"      => "✅ SICURO: Condizioni ottimali. Goditi l'escursione!",
+                _          => "Dati non disponibili."
+            },
             historicalRisk: historicalRisk,
             iffiLevel: iffiTipo, 
             historicalScore: (int)scoreStorico,
