@@ -50,7 +50,7 @@ builder.Services.AddHttpClient("openmeteo", client =>
 
 builder.Services.AddHttpClient("copernicus", client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(15);
+    client.Timeout = TimeSpan.FromSeconds(60);
 });
 
 

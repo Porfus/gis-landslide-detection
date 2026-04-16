@@ -340,8 +340,9 @@ function evaluatePixel(sample) {
 
         private async Task<SentinelData?> GetFallbackDataAsync(double queryLat, double queryLng)
         {
-            var gridPath   = Path.Combine(_env.WebRootPath, "data", "soil_moisture_grid.json");
-            var globalPath = Path.Combine(_env.WebRootPath, "data", "soil_moisture_results.json");
+            var webRoot = _env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot");
+            var gridPath   = Path.Combine(webRoot, "data", "soil_moisture_grid.json");
+            var globalPath = Path.Combine(webRoot, "data", "soil_moisture_results.json");
 
             if (File.Exists(gridPath))
             {
