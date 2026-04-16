@@ -82,6 +82,7 @@ public class LandslideController : Controller
         int  soilScore    = sentinel?.SoilMoistureScore ?? 75;
         double vvDb       = sentinel?.VvMeanDb          ?? -15.0;
         double delta      = sentinel?.DeltaScore        ?? 0;
+        string sentinelSource = sentinel?.Fonte         ?? "Assente/Fallback Base";
 
         var weather       = await _weatherService.GetCurrentPrecipitationAsync(lat, lng);
         double precipMmh  = weather?.PrecipitationMmh ?? 47.0;
@@ -136,6 +137,7 @@ public class LandslideController : Controller
             soilMoisture: soilScore,
             vvMeanDb: vvDb,
             deltaScore: delta,
+            sentinelSource: sentinelSource,
             precipitation: precipitation,
             precipitationMmh: precipMmh
         ));

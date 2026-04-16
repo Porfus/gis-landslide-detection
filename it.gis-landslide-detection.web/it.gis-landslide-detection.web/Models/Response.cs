@@ -2,7 +2,7 @@ namespace it.gis_landslide_detection.web.Models;
 
 public record Response
 {
-    public Response(double lat, double lng, int riskScore, string? riskLevel, string? message, bool historicalRisk, string iffiLevel, int historicalScore, int soilMoisture, double vvMeanDb, double deltaScore, int precipitation, double precipitationMmh)
+    public Response(double lat, double lng, int riskScore, string? riskLevel, string? message, bool historicalRisk, string iffiLevel, int historicalScore, int soilMoisture, double vvMeanDb, double deltaScore, string sentinelSource, int precipitation, double precipitationMmh)
     {
         Lat = lat;
         Lng = lng;
@@ -15,6 +15,7 @@ public record Response
         SoilMoisture = soilMoisture;
         VvMeanDb = vvMeanDb;
         DeltaScore = deltaScore;
+        SentinelSource = sentinelSource;
         Precipitation = precipitation;
         PrecipitationMmh = precipitationMmh;
     }
@@ -33,6 +34,7 @@ public record Response
     public int SoilMoisture { get; set;}
     public double VvMeanDb { get; set; }
     public double DeltaScore { get; set; }
+    public string SentinelSource { get; set; }
 // Componente 3 — precipitazioni ECMWF 
     public int Precipitation { get; set; }
     public double PrecipitationMmh { get; set; }

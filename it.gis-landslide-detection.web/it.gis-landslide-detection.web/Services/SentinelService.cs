@@ -27,9 +27,9 @@ namespace it.gis_landslide_detection.web.Services
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
 
         public SentinelService(
-            IWebHostEnvironment env, 
-            IHttpClientFactory httpClientFactory, 
-            IMemoryCache cache, 
+            IWebHostEnvironment env,
+            IHttpClientFactory httpClientFactory,
+            IMemoryCache cache,
             IOptions<CopernicusApiOptions> options,
             ILogger<SentinelService> logger)
         {
@@ -42,8 +42,9 @@ namespace it.gis_landslide_detection.web.Services
 
         public async Task<SentinelData?> GetSoilMoistureForPointAsync(double lat, double lng)
         {
+            // Cache key arrotondato a 0.01° (~1km) per raggruppare punti vicini
             string cacheKey = $"sentinel:{lat:F2},{lng:F2}";
-            
+
             if (_cache.TryGetValue(cacheKey, out SentinelData? cachedData))
             {
                 _logger.LogInformation("Returning Sentinel data from cache for cell {Lat:F2}, {Lng:F2}", lat, lng);
@@ -55,11 +56,8 @@ namespace it.gis_landslide_detection.web.Services
 
             try
             {
-                // Double check interno
                 if (_cache.TryGetValue(cacheKey, out cachedData))
-                {
                     return cachedData;
-                }
 
                 if (string.IsNullOrEmpty(_options.ClientId) || string.IsNullOrEmpty(_options.ClientSecret) || _options.ClientId.Contains("INSERISCI"))
                 {
@@ -71,15 +69,50 @@ namespace it.gis_landslide_detection.web.Services
                 if (string.IsNullOrEmpty(token))
                     return await GetFallbackDataAsync(lat, lng);
 
-                var moistureData = await FetchMoistureDataAsync(lat, lng, token);
-                
-                if (moistureData != null)
+                // --- Fetch periodo corrente (wet candidate) ---
+                string currentFrom = DateTime.UtcNow.AddDays(-_options.CurrentPeriodDays).ToString("yyyy-MM-ddTHH:mm:ssZ");
+                string currentTo   = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+                _logger.LogInformation("Fetching current SAR data for {Lat:F4},{Lng:F4} [{From} → {To}]", lat, lng, currentFrom, currentTo);
+                double? currentDb = await FetchMeanVvDbAsync(lat, lng, token, currentFrom, currentTo);
+
+                if (currentDb == null)
                 {
-                    _cache.Set(cacheKey, moistureData, TimeSpan.FromHours(6));
-                    return moistureData;
+                    _logger.LogWarning("Current SAR fetch returned null. Running fallback.");
+                    return await GetFallbackDataAsync(lat, lng);
                 }
-                
-                return await GetFallbackDataAsync(lat, lng);
+
+                // --- Fetch dry baseline (luglio-agosto anno precedente, cache lunga) ---
+                // NOTA: Il baseline è fisso per anno e locazione → viene cachato 30 giorni.
+                // Per aree appenniniche/mediterranee luglio-agosto è tipicamente il periodo più secco.
+                // ⚠️ FUTURA ESTENSIONE: Per zone alpine o con neve in quota questo periodo
+                //    potrebbe non essere rappresentativo. Parametrizzato via DryBaselineMonthStart/End.
+                double? dryDb = await GetOrFetchDryBaselineAsync(lat, lng, token);
+
+                double deltaDb    = dryDb.HasValue ? currentDb.Value - dryDb.Value : 0.0;
+                double dbSat      = _options.DbSaturatedThreshold; // -5.0 dB = suolo saturo
+                double dbDry      = _options.DbDryThreshold;       // -20.0 dB = suolo secco
+
+                int currentScore  = (int)Math.Clamp((currentDb.Value - dbDry) / (dbSat - dbDry) * 100.0, 0, 100);
+                int dryScore      = dryDb.HasValue
+                    ? (int)Math.Clamp((dryDb.Value - dbDry) / (dbSat - dbDry) * 100.0, 0, 100)
+                    : 0;
+                int deltaScore    = currentScore - dryScore;
+
+                string periodo    = $"{currentFrom} / {currentTo}";
+
+                var result = new SentinelData(
+                    SoilMoistureScore:    currentScore,
+                    VvMeanDb:             currentDb.Value,
+                    SoilMoistureScoreDry: dryScore,
+                    DeltaScore:           deltaScore,
+                    Periodo:              periodo,
+                    Fonte:                "CDSE Sentinel-1"
+                );
+
+                // Cache del risultato combinato per 7 giorni (aggiornamento settimanale)
+                _cache.Set(cacheKey, result, TimeSpan.FromDays(7));
+                return result;
             }
             catch (Exception ex)
             {
@@ -92,51 +125,65 @@ namespace it.gis_landslide_detection.web.Services
             }
         }
 
-        private async Task<string?> GetAccessTokenAsync()
+        // ─── Dry Baseline ──────────────────────────────────────────────────────────
+
+        /// <summary>
+        ///   Recupera (o restituisce dalla cache) il valore dB medio del periodo di baseline
+        ///   "dry" (luglio-agosto anno precedente). Con cache di 30 giorni, ogni locazione
+        ///   genera una sola chiamata API per l'intera stagione, evitando un dilagare di richieste.
+        /// </summary>
+        private async Task<double?> GetOrFetchDryBaselineAsync(double lat, double lng, string token)
         {
-            if (_cache.TryGetValue("copernicus:token", out string? cachedToken))
-                return cachedToken;
+            string dryKey = $"sentinel:dry:{lat:F2},{lng:F2}";
 
-            var client = _httpClientFactory.CreateClient("copernicus");
-            var request = new HttpRequestMessage(HttpMethod.Post, _options.TokenUrl);
-            
-            request.Content = new FormUrlEncodedContent(new[]
-            {
-                new KeyValuePair<string, string>("grant_type", "client_credentials"),
-                new KeyValuePair<string, string>("client_id", _options.ClientId),
-                new KeyValuePair<string, string>("client_secret", _options.ClientSecret)
-            });
+            if (_cache.TryGetValue(dryKey, out double cachedDryDb))
+                return cachedDryDb;
 
-            var response = await client.SendAsync(request);
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning("Failed to authenticate with Copernicus API: {status}", response.StatusCode);
-                return null;
-            }
+            int baselineYear  = DateTime.UtcNow.Year - 1;
+            string dryFrom    = new DateTime(baselineYear, _options.DryBaselineMonthStart, 1).ToString("yyyy-MM-ddTHH:mm:ssZ");
+            string dryTo      = new DateTime(baselineYear, _options.DryBaselineMonthEnd,   DateTime.DaysInMonth(baselineYear, _options.DryBaselineMonthEnd))
+                                    .ToString("yyyy-MM-ddTHH:mm:ssZ");
 
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("access_token", out var tokenElement))
-            {
-                var t = tokenElement.GetString();
-                _cache.Set("copernicus:token", t, TimeSpan.FromMinutes(8));
-                return t;
-            }
+            _logger.LogInformation("Fetching dry baseline for {Lat:F4},{Lng:F4} [{From} → {To}]", lat, lng, dryFrom, dryTo);
+            double? dryDb = await FetchMeanVvDbAsync(lat, lng, token, dryFrom, dryTo);
 
-            return null;
+            if (dryDb.HasValue)
+                // Baseline fisso per l'anno → cache 30 giorni
+                _cache.Set(dryKey, dryDb.Value, TimeSpan.FromDays(30));
+
+            return dryDb;
         }
 
-        private async Task<SentinelData?> FetchMoistureDataAsync(double lat, double lng, string token)
+        // ─── Core SAR fetch ────────────────────────────────────────────────────────
+
+        /// <summary>
+        ///   Chiama la Process API di Copernicus per l'area/periodo specificati e
+        ///   restituisce il valore medio in dB della banda VV.
+        ///
+        ///   IMPORTANTE — Ordine operazioni (identico al notebook Python):
+        ///   1. Recupera i valori lineari (FLOAT32) da ogni pixel
+        ///   2. Converte PRIMA ogni singolo pixel in dB: dB = 10 * log10(val)
+        ///   3. POI calcola la media dei dB
+        ///   Fare la media lineare prima e poi il log produrrebbe un risultato errato
+        ///   per il teorema di Jensen (overestima sempre il valore reale).
+        /// </summary>
+        private async Task<double?> FetchMeanVvDbAsync(double lat, double lng, string token, string fromDate, string toDate)
         {
-            double offset = 0.005; // ~500m bounding box
+            double offset = _options.BboxOffsetDegrees; // default 0.01° ≈ 1.1km
             double minLng = lng - offset;
             double minLat = lat - offset;
             double maxLng = lng + offset;
             double maxLat = lat + offset;
 
-            // Ultimi 30 giorni per assicurarsi di catturare almeno un'orbita
-            string fromDate = DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-ddTHH:mm:ssZ");
-            string toDate = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
+            // Risoluzione pixel proporzionale a _options.SarResolutionMeters (default 20m/pixel)
+            // Stesso approccio del notebook: bbox_to_dimensions(bbox, resolution=20)
+            const double metersPerDegLat = 111_000.0;
+            double cosLat    = Math.Cos(lat * Math.PI / 180.0);
+            int pixelWidth   = Math.Max(10, (int)Math.Round((maxLng - minLng) * metersPerDegLat * cosLat / _options.SarResolutionMeters));
+            int pixelHeight  = Math.Max(10, (int)Math.Round((maxLat - minLat) * metersPerDegLat           / _options.SarResolutionMeters));
+
+            _logger.LogDebug("SAR request: bbox={MinLat},{MinLng} → {MaxLat},{MaxLng}  size={W}×{H}px",
+                minLat, minLng, maxLat, maxLng, pixelWidth, pixelHeight);
 
             var requestBody = new
             {
@@ -168,8 +215,8 @@ namespace it.gis_landslide_detection.web.Services
                 },
                 output = new
                 {
-                    width = 50,
-                    height = 50,
+                    width  = pixelWidth,
+                    height = pixelHeight,
                     responses = new[]
                     {
                         new { identifier = "default", format = new { type = "image/tiff" } }
@@ -188,35 +235,42 @@ function evaluatePixel(sample) {
 }"
             };
 
-            var client = _httpClientFactory.CreateClient("copernicus");
+            var client  = _httpClientFactory.CreateClient("copernicus");
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            
-            var content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+
+            var content  = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
             var response = await client.PostAsync(_options.ProcessUrl, content);
 
             if (!response.IsSuccessStatusCode)
             {
                 var err = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("Process API failed: {status} - {err}", response.StatusCode, err);
+                _logger.LogWarning("Process API failed: {Status} - {Err}", response.StatusCode, err);
                 return null;
             }
 
             var tiffBytes = await response.Content.ReadAsByteArrayAsync();
-            
+            return ParseMeanVvDb(tiffBytes);
+        }
+
+        /// <summary>
+        ///   Legge il TIFF e calcola la media in dB secondo l'approccio corretto:
+        ///   converti prima ogni pixel in dB, poi fai la media dei dB.
+        /// </summary>
+        private double? ParseMeanVvDb(byte[] tiffBytes)
+        {
             string tempTiff = Path.GetTempFileName();
             try
             {
-                await File.WriteAllBytesAsync(tempTiff, tiffBytes);
+                File.WriteAllBytes(tempTiff, tiffBytes);
                 using var tiff = Tiff.Open(tempTiff, "r");
                 if (tiff == null) return null;
 
-                int width = tiff.GetField(TiffTag.IMAGEWIDTH)[0].ToInt();
-                int height = tiff.GetField(TiffTag.IMAGELENGTH)[0].ToInt();
-
+                int width       = tiff.GetField(TiffTag.IMAGEWIDTH)[0].ToInt();
+                int height      = tiff.GetField(TiffTag.IMAGELENGTH)[0].ToInt();
                 int scanlineSize = tiff.ScanlineSize();
-                byte[] buffer = new byte[scanlineSize];
+                byte[] buffer   = new byte[scanlineSize];
 
-                double sumLinear = 0;
+                double sumDb    = 0.0;
                 int validPixels = 0;
 
                 for (int row = 0; row < height; row++)
@@ -227,7 +281,8 @@ function evaluatePixel(sample) {
                         float val = BitConverter.ToSingle(buffer, col * 4);
                         if (val > 0)
                         {
-                            sumLinear += val;
+                            // STEP 1: converti il singolo pixel in dB
+                            sumDb += 10.0 * Math.Log10(val);
                             validPixels++;
                         }
                     }
@@ -235,22 +290,8 @@ function evaluatePixel(sample) {
 
                 if (validPixels == 0) return null;
 
-                double meanLinear = sumLinear / validPixels;
-                double vvDb = 10.0 * Math.Log10(Math.Max(1e-10, meanLinear));
-                
-                double dbSat = _options.DbSaturatedThreshold;
-                double dbDry = _options.DbDryThreshold;
-                
-                int score = (int)Math.Clamp((vvDb - dbDry) / (dbSat - dbDry) * 100.0, 0, 100);
-
-                return new SentinelData(
-                    SoilMoistureScore: score,
-                    VvMeanDb: vvDb,
-                    SoilMoistureScoreDry: 0,
-                    DeltaScore: 0,
-                    Periodo: $"{fromDate} / {toDate}",
-                    Fonte: "CDSE Sentinel-1"
-                );
+                // STEP 2: media dei valori in dB (non media lineare poi log)
+                return sumDb / validPixels;
             }
             finally
             {
@@ -259,9 +300,47 @@ function evaluatePixel(sample) {
             }
         }
 
+        // ─── Auth token ────────────────────────────────────────────────────────────
+
+        private async Task<string?> GetAccessTokenAsync()
+        {
+            if (_cache.TryGetValue("copernicus:token", out string? cachedToken))
+                return cachedToken;
+
+            var client  = _httpClientFactory.CreateClient("copernicus");
+            var request = new HttpRequestMessage(HttpMethod.Post, _options.TokenUrl);
+
+            request.Content = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("grant_type",    "client_credentials"),
+                new KeyValuePair<string, string>("client_id",     _options.ClientId),
+                new KeyValuePair<string, string>("client_secret", _options.ClientSecret)
+            });
+
+            var response = await client.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Failed to authenticate with Copernicus API: {Status}", response.StatusCode);
+                return null;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("access_token", out var tokenElement))
+            {
+                var t = tokenElement.GetString();
+                _cache.Set("copernicus:token", t, TimeSpan.FromMinutes(8));
+                return t;
+            }
+
+            return null;
+        }
+
+        // ─── Fallback da JSON statico ──────────────────────────────────────────────
+
         private async Task<SentinelData?> GetFallbackDataAsync(double queryLat, double queryLng)
         {
-            var gridPath = Path.Combine(_env.WebRootPath, "data", "soil_moisture_grid.json");
+            var gridPath   = Path.Combine(_env.WebRootPath, "data", "soil_moisture_grid.json");
             var globalPath = Path.Combine(_env.WebRootPath, "data", "soil_moisture_results.json");
 
             if (File.Exists(gridPath))
@@ -270,9 +349,9 @@ function evaluatePixel(sample) {
                 using var doc = JsonDocument.Parse(json);
                 var grid = doc.RootElement.GetProperty("grid");
 
-                double minDist = double.MaxValue;
-                double bestVv = -15.0;
-                int bestScore = 75;
+                double minDist  = double.MaxValue;
+                double bestVv   = -15.0;
+                int    bestScore = 75;
 
                 foreach (var cell in grid.EnumerateArray())
                 {
@@ -281,32 +360,33 @@ function evaluatePixel(sample) {
                     var dist = Math.Sqrt(Math.Pow(cLat - queryLat, 2) + Math.Pow(cLng - queryLng, 2));
                     if (dist < minDist)
                     {
-                        minDist = dist;
-                        bestVv = cell.GetProperty("vv_db").GetDouble();
+                        minDist   = dist;
+                        bestVv    = cell.GetProperty("vv_db").GetDouble();
                         bestScore = cell.GetProperty("score").GetInt32();
                     }
                 }
 
-                var root = doc.RootElement;
+                var root    = doc.RootElement;
                 string periodo = root.TryGetProperty("period", out var periodoEl) ? periodoEl.GetString() ?? "" : "";
 
                 return new SentinelData(bestScore, bestVv, 0, 0, periodo, "Fallback Grid");
             }
             else if (File.Exists(globalPath))
             {
-                 var json = await File.ReadAllTextAsync(globalPath);
-                 using var doc = JsonDocument.Parse(json);
-                 var root = doc.RootElement;
-                 
-                 return new SentinelData(
-                     SoilMoistureScore:    root.GetProperty("soil_moisture_score").GetInt32(),
-                     VvMeanDb:             root.GetProperty("vv_mean_db").GetDouble(),
-                     SoilMoistureScoreDry: 0,
-                     DeltaScore:           0,
-                     Periodo:              root.TryGetProperty("saturated_period", out var p) ? p.GetString() ?? "" : "",
-                     Fonte:                "Fallback Global"
-                 );
+                var json = await File.ReadAllTextAsync(globalPath);
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                return new SentinelData(
+                    SoilMoistureScore:    root.GetProperty("soil_moisture_score_sat").GetInt32(),
+                    VvMeanDb:             root.GetProperty("vv_mean_db_saturated").GetDouble(),
+                    SoilMoistureScoreDry: 0,
+                    DeltaScore:           0,
+                    Periodo:              root.TryGetProperty("saturated_period", out var p) ? p.GetString() ?? "" : "",
+                    Fonte:                "Fallback Global"
+                );
             }
+
             return null;
         }
     }

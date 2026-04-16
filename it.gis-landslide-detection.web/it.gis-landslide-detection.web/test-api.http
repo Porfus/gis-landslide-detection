@@ -1,0 +1,14 @@
+@base_url_local = http://localhost:5140
+@base_url_azure = https://gis-landslide-detection-eegmbphwg2gdgrfn.switzerlandnorth-01.azurewebsites.net
+
+### 1. Test Locale (In esecuzione su porta 5140)
+GET {{base_url_local}}/api/Landslide?lat=43.0805&lng=13.2384
+Accept: application/json
+
+### 2. Test su Azure (Dati Reali Online)
+GET {{base_url_azure}}/api/Landslide?lat=43.0805&lng=13.2384
+Accept: application/json
+
+### 3. Test Coordinate diverse (Gran Sasso)
+GET {{base_url_azure}}/api/Landslide?lat=42.4430&lng=13.5670
+Accept: application/json
