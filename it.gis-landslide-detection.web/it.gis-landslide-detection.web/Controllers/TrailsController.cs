@@ -3,6 +3,7 @@ using it.gis_landslide_detection.web.Data;
 using it.gis_landslide_detection.web.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using NetTopologySuite.IO;
 
 namespace it.gis_landslide_detection.web.Controllers
@@ -15,17 +16,23 @@ namespace it.gis_landslide_detection.web.Controllers
         private readonly IIffiService _iffi;
         private readonly ISentinelService _sentinel;
         private readonly IWeatherService _weather;
+        private readonly ILogger<TrailsController> _logger;
 
-
-
-        public TrailsController(ApplicationDbContext context, IIffiService iffiService, ISentinelService sentinelService, IWeatherService weatherService)
+        public TrailsController(ApplicationDbContext context, IIffiService iffiService, ISentinelService sentinelService, IWeatherService weatherService, ILogger<TrailsController> logger)
         {
             _context = context;
             _iffi = iffiService;
             _sentinel = sentinelService;
             _weather = weatherService;
-
+            _logger = logger;
         }
+
+        /// <summary>
+        /// Sanitizes a double value: replaces NaN and Infinity with a fallback (default 0).
+        /// This prevents System.Text.Json serialization failures.
+        /// </summary>
+        private static double Safe(double value, double fallback = 0.0)
+            => double.IsFinite(value) ? value : fallback;
 
         // GET /api/trails
         // Restituisce tutti i trail come array JSON con id, name e geom (GeoJSON)
@@ -51,6 +58,8 @@ namespace it.gis_landslide_detection.web.Controllers
         [HttpGet("{id}/risk")]
         public async Task<IActionResult> GetRisk(long id)
         {
+          try
+          {
             // get punto critico lungo il trail
             var iffiResult = await _iffi.GetTrailRiskAsync(id);
             if (iffiResult == null)
@@ -113,7 +122,10 @@ namespace it.gis_landslide_detection.web.Controllers
                 _ => "LOW"
             };
 
-            // 5. Risposta completa
+            // 5. Risposta completa — sanitize di tutti i double per evitare NaN/Infinity nel JSON
+            riskScore = Safe(riskScore);
+            histScore = Safe(histScore);
+
             return Ok(new
             {
                 // Trail
@@ -130,18 +142,24 @@ namespace it.gis_landslide_detection.web.Controllers
                                            ? "Percorrere con cautela."
                                            : "Sentiero sicuro.",
                 // Punto critico da mostrare sulla mappa
-                CriticalPointLat = iffiResult.HasRisk ? queryLat : (double?)null,
-                CriticalPointLng = iffiResult.HasRisk ? queryLng : (double?)null,
+                CriticalPointLat = iffiResult.HasRisk ? Safe(queryLat) : (double?)null,
+                CriticalPointLng = iffiResult.HasRisk ? Safe(queryLng) : (double?)null,
                 
                 // Nuove componenti diagnostiche
                 Components = new 
                 {
-                    Iffi = new { Score = (int)histScore, Weight = 0.35, Tipo = iffiResult.IffiTipo, ZoneCount = iffiResult.ZoneCount },
-                    SoilMoisture = new { Score = soilScore, Weight = Math.Round(wSoil * 0.65, 4), VvDb = Math.Round(vvDb, 2), Source = sentinelSrc },
-                    AntecedentPrecip = new { Score = apiScore, Weight = Math.Round(wApi * 0.65, 4), ApiMm = Math.Round(apiMm, 2), Days = 7, DecayK = 0.85 },
-                    CurrentRain = new { Score = currentRainScore, Weight = Math.Round(wRain * 0.65, 4), Mmh = Math.Round(precipMmh, 2), Source = meteoSrc }
+                    Iffi = new { Score = (int)Safe(histScore), Weight = 0.35, Tipo = iffiResult.IffiTipo, ZoneCount = iffiResult.ZoneCount },
+                    SoilMoisture = new { Score = soilScore, Weight = Safe(Math.Round(wSoil * 0.65, 4)), VvDb = Safe(Math.Round(vvDb, 2)), Source = sentinelSrc },
+                    AntecedentPrecip = new { Score = apiScore, Weight = Safe(Math.Round(wApi * 0.65, 4)), ApiMm = Safe(Math.Round(apiMm, 2)), Days = 7, DecayK = 0.85 },
+                    CurrentRain = new { Score = currentRainScore, Weight = Safe(Math.Round(wRain * 0.65, 4)), Mmh = Safe(Math.Round(precipMmh, 2)), Source = meteoSrc }
                 }
             });
+          }
+          catch (Exception ex)
+          {
+              _logger.LogError(ex, "Errore nel calcolo del rischio per trail {TrailId}", id);
+              return StatusCode(500, new { error = $"Errore interno nel calcolo del rischio per il trail {id}.", detail = ex.Message });
+          }
         }
 
     }

@@ -62,13 +62,36 @@ public class TrailRiskCalculator : ITrailRiskCalculator
         // Calcola l'intersezione esatta tra sentiero e zona più pericolosa
         if (trail.Geom != null && trail.Geom.Intersects(geomDaAnalizzare))
         {
-            var intersezione = trail.Geom.Intersection(geomDaAnalizzare);
-            // Se l'intersezione non produce un centroide valido per qualche anomalia geometrica, usa la zona
-            puntoCritico = intersezione.Centroid ?? geomDaAnalizzare.Centroid;
+            try
+            {
+                var intersezione = trail.Geom.Intersection(geomDaAnalizzare);
+                var candidato = intersezione.Centroid;
+                // Verifica che il centroide abbia coordinate finite (non NaN/Infinity)
+                // Le geometrie degenerate (es. intersezione puntiforme quasi-tangente) possono produrre centroidi non validi
+                if (candidato != null && double.IsFinite(candidato.X) && double.IsFinite(candidato.Y))
+                    puntoCritico = candidato;
+                else
+                    puntoCritico = geomDaAnalizzare.Centroid;
+            }
+            catch
+            {
+                // In caso di errore geometrico (TopologyException, ecc.), fallback al centroide della zona
+                puntoCritico = geomDaAnalizzare.Centroid;
+            }
         }
         else
         {
             puntoCritico = geomDaAnalizzare.Centroid;
+        }
+
+        // Ultima verifica: se anche il centroide della zona è invalido, usa quello del trail
+        if (!double.IsFinite(puntoCritico.X) || !double.IsFinite(puntoCritico.Y))
+        {
+            var trailCentroid = trail.Geom?.Centroid;
+            if (trailCentroid != null && double.IsFinite(trailCentroid.X) && double.IsFinite(trailCentroid.Y))
+                puntoCritico = trailCentroid;
+            else
+                puntoCritico = new Point(13.003, 43.098); // fallback assoluto
         }
 
         return new TrailRiskResult(

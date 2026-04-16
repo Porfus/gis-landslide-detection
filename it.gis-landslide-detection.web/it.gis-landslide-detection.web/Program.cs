@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using it.gis_landslide_detection.web.Data;
 using it.gis_landslide_detection.web.Services;
 using Microsoft.EntityFrameworkCore;
@@ -19,7 +21,13 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     }));
 
 // Add services to the container.
-builder.Services.AddControllersWithViews();
+builder.Services.AddControllersWithViews()
+    .AddJsonOptions(opts =>
+    {
+        // Safety net: se un valore NaN/Infinity sfugge alla sanitizzazione manuale,
+        // il serializzatore lo scrive come stringa invece di lanciare ArgumentException
+        opts.JsonSerializerOptions.NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals;
+    });
 builder.Services.AddMemoryCache();
 builder.Services.Configure<it.gis_landslide_detection.web.Models.CopernicusApiOptions>(
     builder.Configuration.GetSection("CopernicusApi"));
