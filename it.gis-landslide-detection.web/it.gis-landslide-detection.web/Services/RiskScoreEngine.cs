@@ -1,0 +1,147 @@
+namespace it.gis_landslide_detection.web.Services;
+
+/// <summary>
+/// Implementazione del motore di calcolo rischio frane.
+///
+/// Modello Moltiplicativo Ibrido con tre meccanismi di correzione:
+///   R1 — Flash Event Override:   pioggia >50 mm/h → floor al 75% del baseHazard
+///   R2 — Saturation Floor:       sat.idx >80 → floor a 30 + sat.idx × 0.50
+///   R3 — Pesi Stagionali:        in estate (giu–set), per Colamento rapido e
+///                                 Scivolamento, wRain sale da 0.15 a 0.45
+///
+/// Formula base invariata:
+///   saturationIndex = soilScore×wSoil + apiScore×wApi + currentRainScore×wRain
+///   baseHazard      = max(iffiScore, ε=25)
+///   triggerMult     = 0.3 + saturationIndex/100
+///   riskScore       = min(100, baseHazard × triggerMult)
+///   riskScore       = max(riskScore, flashFloor, satFloor)   ← R1/R2
+/// </summary>
+public class RiskScoreEngine : IRiskScoreEngine
+{
+    // ── Soglie di override ────────────────────────────────────────────────
+    private const double FlashRainThresholdMmh = 50.0;   // R1: soglia temporale V-shaped
+    private const double FlashHazardFactor     = 0.75;   // R1: % del baseHazard garantita
+    private const double SaturationFloorThreshold = 80.0; // R2: soglia sat.idx per attivare il floor
+    private const double SaturationFloorBase   = 30.0;    // R2: base del floor additivo
+    private const double SaturationFloorCoeff  = 0.50;    // R2: coefficiente lineare
+    private const double Epsilon               = 25.0;    // Suscettibilità base per zone non mappate IFFI
+
+    public RiskAssessment Calculate(
+        double iffiHazardScore,
+        string? iffiTipo,
+        int soilMoistureScore,
+        int apiScore,
+        int currentRainScore,
+        double precipMmh,
+        bool weatherDataUnavailable = false)
+    {
+        // ── 1. Pesi dinamici in base al tipo geofisico IFFI ──────────────
+        double wSoil = 0.40;
+        double wApi  = 0.35;
+        double wRain = 0.25;
+
+        if (iffiTipo == "Crollo/Ribaltamento")
+        {
+            // Roccia: non si imbeve. Conta la pioggia istantanea (fessurazione/pressione idrostatica)
+            wSoil = 0.10;
+            wApi  = 0.20;
+            wRain = 0.70;
+        }
+        else if (iffiTipo is "Scivolamento rotazionale/traslativo" or "Colamento rapido")
+        {
+            // Terreno/Fango: saturazione e pioggia passata sono i trigger primari
+            wSoil = 0.45;
+            wApi  = 0.40;
+            wRain = 0.15;
+        }
+
+        // ── R3: Pesi stagionali ──────────────────────────────────────────
+        // In estate (giugno-settembre) il suolo è tipicamente secco e l'API è basso.
+        // L'unico segnale realistico per un flash event è la pioggia istantanea.
+        // Ribilanciamo i pesi per colamento rapido e scivolamento.
+        int month = DateTime.UtcNow.Month;
+        bool isSummer = month >= 6 && month <= 9;
+
+        if (isSummer && iffiTipo is "Colamento rapido" or "Scivolamento rotazionale/traslativo")
+        {
+            wSoil = 0.20;  // era 0.45
+            wApi  = 0.35;  // era 0.40
+            wRain = 0.45;  // era 0.15
+        }
+
+        // ── 2. Indice di Saturazione Combinato ───────────────────────────
+        double saturationIndex = (soilMoistureScore * wSoil)
+                               + (apiScore * wApi)
+                               + (currentRainScore * wRain);
+
+        // ── 3. Rischio Finale (Modello Moltiplicativo Ibrido) ────────────
+        double baseHazard = Math.Max(iffiHazardScore, Epsilon);
+        double triggerMultiplier = 0.3 + (saturationIndex / 100.0);
+        double riskScore = Math.Min(100.0, baseHazard * triggerMultiplier);
+
+        // ── R1: Flash Event Override ─────────────────────────────────────
+        // Un temporale V-shaped (>50 mm/h) è un trigger indipendente dalla saturazione
+        // preesistente. Garantisce che zone ad alto hazard storico raggiungano CRITICAL
+        // anche con suoli asciutti (scenario 15/09/2022, 13 morti).
+        bool flashOverrideApplied = false;
+        if (precipMmh > FlashRainThresholdMmh)
+        {
+            double flashFloor = baseHazard * FlashHazardFactor;
+            if (flashFloor > riskScore)
+            {
+                riskScore = flashFloor;
+                flashOverrideApplied = true;
+            }
+        }
+
+        // ── R2: Saturation Floor ─────────────────────────────────────────
+        // Condizioni meteo estreme devono poter sovrascrivere un IFFI score basso.
+        // Con sat.idx > 80, il floor garantisce almeno HIGH indipendentemente dal tipo IFFI
+        // (scenario Nov 2020, Acquasanta Terme: IFFI "Complesso"=40, sat.idx=81.7).
+        bool saturationFloorApplied = false;
+        if (saturationIndex > SaturationFloorThreshold)
+        {
+            double satFloor = SaturationFloorBase + (saturationIndex * SaturationFloorCoeff);
+            if (satFloor > riskScore)
+            {
+                riskScore = satFloor;
+                saturationFloorApplied = true;
+            }
+        }
+
+        // ── 4. Clamp finale ──────────────────────────────────────────────
+        riskScore = Math.Min(100.0, riskScore);
+
+        // ── R4: Weather Data Fallback ────────────────────────────────────
+        // Se i dati meteo non sono disponibili, eleviamo precauzionalmente il rischio di uno step.
+        // Un sistema di sicurezza non deve mai abbassare il rischio per assenza di dati.
+        if (weatherDataUnavailable)
+        {
+            if (riskScore < 30.0) riskScore = 30.0;
+            else if (riskScore < 50.0) riskScore = 50.0;
+            else if (riskScore < 75.0) riskScore = 75.0;
+        }
+
+        string level = riskScore switch
+        {
+            >= 75 => "CRITICAL",
+            >= 50 => "HIGH",
+            >= 30 => "MEDIUM",
+            _     => "LOW"
+        };
+
+        return new RiskAssessment(
+            RiskScore:               riskScore,
+            RiskLevel:               level,
+            SaturationIndex:         saturationIndex,
+            TriggerMultiplier:       triggerMultiplier,
+            BaseHazard:              baseHazard,
+            WSoil:                   wSoil,
+            WApi:                    wApi,
+            WRain:                   wRain,
+            FlashOverrideApplied:    flashOverrideApplied,
+            SaturationFloorApplied:  saturationFloorApplied,
+            WeatherDataUnavailable:  weatherDataUnavailable
+        );
+    }
+}

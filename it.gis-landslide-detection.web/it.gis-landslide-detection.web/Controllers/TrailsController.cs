@@ -16,14 +16,16 @@ namespace it.gis_landslide_detection.web.Controllers
         private readonly IIffiService _iffi;
         private readonly ISentinelService _sentinel;
         private readonly IWeatherService _weather;
+        private readonly IRiskScoreEngine _riskEngine;
         private readonly ILogger<TrailsController> _logger;
 
-        public TrailsController(ApplicationDbContext context, IIffiService iffiService, ISentinelService sentinelService, IWeatherService weatherService, ILogger<TrailsController> logger)
+        public TrailsController(ApplicationDbContext context, IIffiService iffiService, ISentinelService sentinelService, IWeatherService weatherService, IRiskScoreEngine riskEngine, ILogger<TrailsController> logger)
         {
             _context = context;
             _iffi = iffiService;
             _sentinel = sentinelService;
             _weather = weatherService;
+            _riskEngine = riskEngine;
             _logger = logger;
         }
 
@@ -80,61 +82,27 @@ namespace it.gis_landslide_detection.web.Controllers
             double vvDb = sentinel?.VvMeanDb ?? 0;
             string sentinelSrc = sentinel?.Fonte ?? "fallback";
             
+            bool weatherDataUnavailable = weather == null;
+
             int apiScore = weather?.ApiScore ?? 0;
             double apiMm = weather?.AntecedentPrecipIndex ?? 0;
             int currentRainScore = weather?.CurrentRainScore ?? 0;
             double precipMmh = weather?.PrecipitationMmh ?? 0;
             string meteoSrc = weather?.Source ?? "fallback";
 
-            // --- Pesi Dinamici in base al tipo Geofisico ---
-            double wSoil = 0.40;
-            double wApi = 0.35;
-            double wRain = 0.25;
-
-            var tipo = iffiResult.IffiTipo;
-            if (tipo == "Crollo/Ribaltamento")
-            {
-                // Roccia: non si imbeve come il terreno. Conta la pioggia istantanea (fessurazione/pressione idrostatica)
-                wSoil = 0.10;
-                wApi = 0.20;
-                wRain = 0.70;
-            }
-            else if (tipo == "Scivolamento rotazionale/traslativo" || tipo == "Colamento rapido")
-            {
-                // Terreno/Fango: saturazione e pioggia passata sono i trigger primari
-                wSoil = 0.45;
-                wApi = 0.40;
-                wRain = 0.15;
-            }
-
-            // --- Indice di Saturazione Combinato ---
-            double saturationIndex = (soilScore * wSoil) + (apiScore * wApi) + (currentRainScore * wRain);
-
-            // --- Rischio Finale (Modello Moltiplicativo Ibrido) ---
+            // --- Calcolo rischio tramite RiskScoreEngine (R1/R2/R3 inclusi) ---
             double histScore = iffiResult.HazardScore;
-            
-            // Epsilon: Offset di Suscettibilità Base (es. 25.0)
-            // Usa Math.Max per mantenere puro il dato storico (IFFI) se presente.
-            // In questo modo, su sentieri non mappati (IFFI = 0), il rischio base è 25 e una tempesta 
-            // estrema (1.3x) porta il rischio a ~32.5 (MEDIUM). Nelle zone IFFI, il dato storico non viene inflazionato.
-            double epsilon = 25.0; 
-            double baseHazard = Math.Max(histScore, epsilon);
-            
-            // Fattore Moltiplicativo (Trigger): da 0.3 (secco) a 1.3 (saturo/pioggia estrema)
-            double triggerMultiplier = 0.3 + (saturationIndex / 100.0);
-            
-            double riskScore = Math.Min(100.0, baseHazard * triggerMultiplier);
+            var risk = _riskEngine.Calculate(
+                iffiHazardScore:  histScore,
+                iffiTipo:         iffiResult.IffiTipo,
+                soilMoistureScore: soilScore,
+                apiScore:         apiScore,
+                currentRainScore: currentRainScore,
+                precipMmh:        precipMmh,
+                weatherDataUnavailable: weatherDataUnavailable
+            );
 
-            string level = riskScore switch
-            {
-                >= 75 => "CRITICAL",
-                >= 50 => "HIGH",
-                >= 30 => "MEDIUM",
-                _ => "LOW"
-            };
-
-            // 5. Risposta completa — sanitize di tutti i double per evitare NaN/Infinity nel JSON
-            riskScore = Safe(riskScore);
+            double riskScore = Safe(risk.RiskScore);
             histScore = Safe(histScore);
 
             return Ok(new
@@ -144,25 +112,32 @@ namespace it.gis_landslide_detection.web.Controllers
                 TrailName = iffiResult.TrailName,
                 // Score finale
                 RiskScore = (int)riskScore,
-                RiskLevel = level,
-                Message = level == "CRITICAL"
-                                   ? "Sentiero bloccato: rischio frana critico."
-                                   : level == "HIGH"
-                                       ? "Sconsigliato: elevata probabilità di instabilità."
-                                       : level == "MEDIUM"
-                                           ? "Percorrere con cautela."
-                                           : "Sentiero sicuro.",
+                RiskLevel = risk.RiskLevel,
+                Message = risk.RiskLevel switch
+                {
+                    "CRITICAL" => "Sentiero bloccato: rischio frana critico.",
+                    "HIGH"     => "Sconsigliato: elevata probabilità di instabilità.",
+                    "MEDIUM"   => "Percorrere con cautela.",
+                    _          => "Sentiero sicuro."
+                },
                 // Punto critico da mostrare sulla mappa
                 CriticalPointLat = iffiResult.HasRisk ? Safe(queryLat) : (double?)null,
                 CriticalPointLng = iffiResult.HasRisk ? Safe(queryLng) : (double?)null,
                 
-                // Nuove componenti diagnostiche
+                // Componenti diagnostiche
                 Components = new 
                 {
                     Iffi = new { Score = (int)Safe(histScore), Weight = 0.35, Tipo = iffiResult.IffiTipo, ZoneCount = iffiResult.ZoneCount },
-                    SoilMoisture = new { Score = soilScore, Weight = Safe(Math.Round(wSoil * 0.65, 4)), VvDb = Safe(Math.Round(vvDb, 2)), Source = sentinelSrc },
-                    AntecedentPrecip = new { Score = apiScore, Weight = Safe(Math.Round(wApi * 0.65, 4)), ApiMm = Safe(Math.Round(apiMm, 2)), Days = 7, DecayK = 0.85 },
-                    CurrentRain = new { Score = currentRainScore, Weight = Safe(Math.Round(wRain * 0.65, 4)), Mmh = Safe(Math.Round(precipMmh, 2)), Source = meteoSrc }
+                    SoilMoisture = new { Score = soilScore, Weight = Safe(Math.Round(risk.WSoil, 4)), VvDb = Safe(Math.Round(vvDb, 2)), Source = sentinelSrc },
+                    AntecedentPrecip = new { Score = apiScore, Weight = Safe(Math.Round(risk.WApi, 4)), ApiMm = Safe(Math.Round(apiMm, 2)), Days = 7, DecayK = 0.85 },
+                    CurrentRain = new { Score = currentRainScore, Weight = Safe(Math.Round(risk.WRain, 4)), Mmh = Safe(Math.Round(precipMmh, 2)), Source = meteoSrc },
+                    // Diagnostica formula
+                    SaturationIndex = Safe(Math.Round(risk.SaturationIndex, 2)),
+                    TriggerMultiplier = Safe(Math.Round(risk.TriggerMultiplier, 4)),
+                    BaseHazard = Safe(risk.BaseHazard),
+                    FlashOverrideApplied = risk.FlashOverrideApplied,
+                    SaturationFloorApplied = risk.SaturationFloorApplied,
+                    WeatherDataUnavailable = risk.WeatherDataUnavailable
                 }
             });
           }

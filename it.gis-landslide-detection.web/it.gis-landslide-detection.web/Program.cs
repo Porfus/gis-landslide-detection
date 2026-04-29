@@ -35,6 +35,7 @@ builder.Services.Configure<it.gis_landslide_detection.web.Models.CopernicusApiOp
 builder.Services.AddScoped<IIffiService, IffiService>();
 builder.Services.AddScoped<ITrailRiskCalculator, TrailRiskCalculator>();
 builder.Services.AddScoped<IWeatherService, WeatherService>();
+builder.Services.AddScoped<IRiskScoreEngine, RiskScoreEngine>();
 
 
 builder.Services.AddCors(options =>
