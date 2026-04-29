@@ -114,11 +114,11 @@ namespace it.gis_landslide_detection.web.Controllers
             double histScore = iffiResult.HazardScore;
             
             // Epsilon: Offset di Suscettibilità Base (es. 25.0)
-            // Compensa l'incertezza dei dati IFFI fornendo un "punteggio minimo" garantito.
-            // In questo modo, su sentieri non mappati (IFFI = 0), una tempesta estrema (1.3x) 
-            // porta il rischio a ~32.5, facendo scattare l'allerta MEDIUM (>= 30).
+            // Usa Math.Max per mantenere puro il dato storico (IFFI) se presente.
+            // In questo modo, su sentieri non mappati (IFFI = 0), il rischio base è 25 e una tempesta 
+            // estrema (1.3x) porta il rischio a ~32.5 (MEDIUM). Nelle zone IFFI, il dato storico non viene inflazionato.
             double epsilon = 25.0; 
-            double baseHazard = histScore + epsilon;
+            double baseHazard = Math.Max(histScore, epsilon);
             
             // Fattore Moltiplicativo (Trigger): da 0.3 (secco) a 1.3 (saturo/pioggia estrema)
             double triggerMultiplier = 0.3 + (saturationIndex / 100.0);
