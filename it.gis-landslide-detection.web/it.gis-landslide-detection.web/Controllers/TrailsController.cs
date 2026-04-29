@@ -76,14 +76,14 @@ namespace it.gis_landslide_detection.web.Controllers
                 .GetCurrentPrecipitationAsync(queryLat, queryLng);
 
             // Valori con fallback
-            int soilScore = sentinel?.SoilMoistureScore ?? 75;
-            double vvDb = sentinel?.VvMeanDb ?? -15.0;
+            int soilScore = sentinel?.SoilMoistureScore ?? 0;
+            double vvDb = sentinel?.VvMeanDb ?? 0;
             string sentinelSrc = sentinel?.Fonte ?? "fallback";
             
-            int apiScore = weather?.ApiScore ?? 85;
-            double apiMm = weather?.AntecedentPrecipIndex ?? 68.3;
-            int currentRainScore = weather?.CurrentRainScore ?? 60;
-            double precipMmh = weather?.PrecipitationMmh ?? 18.0;
+            int apiScore = weather?.ApiScore ?? 0;
+            double apiMm = weather?.AntecedentPrecipIndex ?? 0;
+            int currentRainScore = weather?.CurrentRainScore ?? 0;
+            double precipMmh = weather?.PrecipitationMmh ?? 0;
             string meteoSrc = weather?.Source ?? "fallback";
 
             // --- Pesi Dinamici in base al tipo Geofisico ---
@@ -110,9 +110,20 @@ namespace it.gis_landslide_detection.web.Controllers
             // --- Indice di Saturazione Combinato ---
             double saturationIndex = (soilScore * wSoil) + (apiScore * wApi) + (currentRainScore * wRain);
 
-            // --- Rischio Finale ---
+            // --- Rischio Finale (Modello Moltiplicativo Ibrido) ---
             double histScore = iffiResult.HazardScore;
-            double riskScore = (histScore * 0.35) + (saturationIndex * 0.65);
+            
+            // Epsilon: Offset di Suscettibilità Base (es. 25.0)
+            // Compensa l'incertezza dei dati IFFI fornendo un "punteggio minimo" garantito.
+            // In questo modo, su sentieri non mappati (IFFI = 0), una tempesta estrema (1.3x) 
+            // porta il rischio a ~32.5, facendo scattare l'allerta MEDIUM (>= 30).
+            double epsilon = 25.0; 
+            double baseHazard = histScore + epsilon;
+            
+            // Fattore Moltiplicativo (Trigger): da 0.3 (secco) a 1.3 (saturo/pioggia estrema)
+            double triggerMultiplier = 0.3 + (saturationIndex / 100.0);
+            
+            double riskScore = Math.Min(100.0, baseHazard * triggerMultiplier);
 
             string level = riskScore switch
             {
