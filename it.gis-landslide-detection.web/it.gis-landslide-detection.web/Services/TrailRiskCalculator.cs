@@ -57,32 +57,7 @@ public class TrailRiskCalculator : ITrailRiskCalculator
             .First();
 
         Geometry geomDaAnalizzare = zonaPiuPericolosa.Geom!;
-        Point puntoCritico;
-
-        // Calcola l'intersezione esatta tra sentiero e zona più pericolosa
-        if (trail.Geom != null && trail.Geom.Intersects(geomDaAnalizzare))
-        {
-            try
-            {
-                var intersezione = trail.Geom.Intersection(geomDaAnalizzare);
-                var candidato = intersezione.Centroid;
-                // Verifica che il centroide abbia coordinate finite (non NaN/Infinity)
-                // Le geometrie degenerate (es. intersezione puntiforme quasi-tangente) possono produrre centroidi non validi
-                if (candidato != null && double.IsFinite(candidato.X) && double.IsFinite(candidato.Y))
-                    puntoCritico = candidato;
-                else
-                    puntoCritico = geomDaAnalizzare.Centroid;
-            }
-            catch
-            {
-                // In caso di errore geometrico (TopologyException, ecc.), fallback al centroide della zona
-                puntoCritico = geomDaAnalizzare.Centroid;
-            }
-        }
-        else
-        {
-            puntoCritico = geomDaAnalizzare.Centroid;
-        }
+        var puntoCritico = CalcolaPuntoCritico(trail.Geom, geomDaAnalizzare);
 
         // Ultima verifica: se anche il centroide della zona è invalido, usa quello del trail
         if (!double.IsFinite(puntoCritico.X) || !double.IsFinite(puntoCritico.Y))
@@ -105,5 +80,29 @@ public class TrailRiskCalculator : ITrailRiskCalculator
             ZoneCount: zones.Count,
             HazardScore: GetHazardScore(zonaPiuPericolosa.NomeTipo)
         );
+    }
+
+    /// <summary>
+    /// Calcola il punto critico dell'intersezione tra sentiero e zona franosa.
+    /// Restituisce il centroide dell'intersezione se valido, altrimenti il centroide della zona (fallback).
+    /// </summary>
+    private static Point CalcolaPuntoCritico(Geometry? trailGeom, Geometry zonaGeom)
+    {
+        if (trailGeom != null && trailGeom.Intersects(zonaGeom))
+        {
+            try
+            {
+                var candidato = trailGeom.Intersection(zonaGeom).Centroid;
+                // Le geometrie degenerate possono produrre centroidi NaN/Infinity
+                if (candidato != null && double.IsFinite(candidato.X) && double.IsFinite(candidato.Y))
+                    return candidato;
+            }
+            catch
+            {
+                // TopologyException o simili: fallback garantito
+            }
+        }
+
+        return zonaGeom.Centroid;
     }
 }

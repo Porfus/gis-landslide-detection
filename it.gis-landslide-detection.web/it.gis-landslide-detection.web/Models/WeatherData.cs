@@ -7,17 +7,15 @@ namespace it.gis_landslide_detection.web.Models
         public double AntecedentPrecipIndex { get; set; }  // API calcolato con decay k=0.85
         public int    ApiScore { get; set; }               // API normalizzato 0-100
         public int    CurrentRainScore { get; set; }       // pioggia attuale normalizzata 0-100
-        public int    PrecipitationScore { get; set; }     // score combinato 
         public string? Source { get; set; }
 
-        public WeatherData(double precipitationMmh, double pastPrecipitationMm, double antecedentPrecipIndex, int apiScore, int currentRainScore, int precipitationScore, string? source)
+        public WeatherData(double precipitationMmh, double pastPrecipitationMm, double antecedentPrecipIndex, int apiScore, int currentRainScore, string? source)
         {
             PrecipitationMmh = precipitationMmh;
             PastPrecipitationMm = pastPrecipitationMm;
             AntecedentPrecipIndex = antecedentPrecipIndex;
             ApiScore = apiScore;
             CurrentRainScore = currentRainScore;
-            PrecipitationScore = precipitationScore;
             Source = source;
         }
     }

@@ -86,7 +86,7 @@ public class LandslideController : Controller
 
         var weather       = await _weatherService.GetCurrentPrecipitationAsync(lat, lng);
         double precipMmh  = weather?.PrecipitationMmh ?? 47.0;
-        int precipitation = weather?.PrecipitationScore ?? 85;
+        int precipitation = weather?.CurrentRainScore ?? 85;
         int currentRainScore = weather?.CurrentRainScore ?? 60;
         int apiScore      = weather?.ApiScore ?? 85;
 

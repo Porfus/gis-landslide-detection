@@ -75,16 +75,12 @@ namespace it.gis_landslide_detection.web.Services
                 // Normalizza: intensità attuale >= 30 mm/h = score 100
                 int currentRainScore = (int)Math.Clamp((mmh / 30.0) * 100.0, 0, 100);
 
-                // Calcolo score combinato
-                int precipitationScore = (int)((apiScore * 0.60) + (currentRainScore * 0.40));
-
                 var result = new WeatherData(
                     mmh, 
                     pastPrecipitation, 
                     antecedentPrecipIndex, 
                     apiScore, 
                     currentRainScore, 
-                    precipitationScore, 
                     "Open-Meteo"
                 );
 

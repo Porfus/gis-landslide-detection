@@ -32,7 +32,7 @@ namespace it.gis_landslide_detection.web.Controllers
             var weather = await _weatherService
                 .GetCurrentPrecipitationAsync(40.72384970631184, -74.01526921338605);
             Console.WriteLine($"Meteo: {weather?.PrecipitationMmh} mm/h " +
-                              $"(score {weather?.PrecipitationScore}) " +
+                              $"(score {weather?.CurrentRainScore}) " +
                               $"da {weather?.Source}");
             return View();
         }
