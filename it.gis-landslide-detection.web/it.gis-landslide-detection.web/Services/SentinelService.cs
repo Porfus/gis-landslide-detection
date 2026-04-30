@@ -291,7 +291,13 @@ function evaluatePixel(sample) {
                 if (validPixels == 0) return null;
 
                 // STEP 2: media dei valori in dB (non media lineare poi log)
-                return sumDb / validPixels;
+                double resultDb = sumDb / validPixels;
+                
+                // Se il risultato è esattamente 0.0 dB (ovvero backscatter lineare 1.0)
+                // significa che l'API ha restituito un'immagine di background/no-data
+                if (Math.Abs(resultDb) < 0.0001) return null;
+                
+                return resultDb;
             }
             finally
             {
@@ -369,6 +375,9 @@ function evaluatePixel(sample) {
 
                 var root    = doc.RootElement;
                 string periodo = root.TryGetProperty("period", out var periodoEl) ? periodoEl.GetString() ?? "" : "";
+
+                // Se il punto più vicino è troppo lontano (> 0.05 gradi, ~5km), consideriamo i dati non disponibili
+                if (minDist > 0.05) return null;
 
                 return new SentinelData(bestScore, bestVv, 0, 0, periodo, "Fallback Grid");
             }

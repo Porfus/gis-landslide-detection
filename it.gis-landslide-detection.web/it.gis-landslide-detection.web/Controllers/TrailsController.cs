@@ -78,9 +78,10 @@ namespace it.gis_landslide_detection.web.Controllers
                 .GetCurrentPrecipitationAsync(queryLat, queryLng);
 
             // Valori con fallback
+            bool sentinelUnavailable = sentinel == null;
             int soilScore = sentinel?.SoilMoistureScore ?? 0;
-            double vvDb = sentinel?.VvMeanDb ?? 0;
-            string sentinelSrc = sentinel?.Fonte ?? "fallback";
+            double vvDb = sentinel?.VvMeanDb ?? -20.0; // Default a secco invece di 0 (che per il SAR significa saturo)
+            string sentinelSrc = sentinel?.Fonte ?? "Dati non disponibili";
             
             bool weatherDataUnavailable = weather == null;
 
@@ -128,7 +129,13 @@ namespace it.gis_landslide_detection.web.Controllers
                 Components = new 
                 {
                     Iffi = new { Score = (int)Safe(histScore), Weight = 0.35, Tipo = iffiResult.IffiTipo, ZoneCount = iffiResult.ZoneCount },
-                    SoilMoisture = new { Score = soilScore, Weight = Safe(Math.Round(risk.WSoil, 4)), VvDb = Safe(Math.Round(vvDb, 2)), Source = sentinelSrc },
+                    SoilMoisture = new { 
+                        Unavailable = sentinelUnavailable, 
+                        Score = soilScore, 
+                        Weight = Safe(Math.Round(risk.WSoil, 4)), 
+                        VvDb = Safe(Math.Round(vvDb, 2)), 
+                        Source = sentinelSrc 
+                    },
                     AntecedentPrecip = new { Score = apiScore, Weight = Safe(Math.Round(risk.WApi, 4)), ApiMm = Safe(Math.Round(apiMm, 2)), Days = 7, DecayK = 0.85 },
                     CurrentRain = new { Score = currentRainScore, Weight = Safe(Math.Round(risk.WRain, 4)), Mmh = Safe(Math.Round(precipMmh, 2)), Source = meteoSrc },
                     // Diagnostica formula
