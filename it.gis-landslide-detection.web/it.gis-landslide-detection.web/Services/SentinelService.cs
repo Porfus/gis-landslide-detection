@@ -274,17 +274,32 @@ function evaluatePixel(sample) {
                 double sumDb    = 0.0;
                 int validPixels = 0;
 
+                bool swapBytes = tiff.IsBigEndian() == BitConverter.IsLittleEndian;
+
                 for (int row = 0; row < height; row++)
                 {
                     tiff.ReadScanline(buffer, row);
                     for (int col = 0; col < width; col++)
                     {
-                        float val = BitConverter.ToSingle(buffer, col * 4);
-                        if (val > 0)
+                        byte[] floatBytes = new byte[4];
+                        Array.Copy(buffer, col * 4, floatBytes, 0, 4);
+                        
+                        if (swapBytes)
+                        {
+                            Array.Reverse(floatBytes);
+                        }
+
+                        float val = BitConverter.ToSingle(floatBytes, 0);
+
+                        if (val > 0 && !float.IsInfinity(val) && !float.IsNaN(val))
                         {
                             // STEP 1: converti il singolo pixel in dB
-                            sumDb += 10.0 * Math.Log10(val);
-                            validPixels++;
+                            double db = 10.0 * Math.Log10(val);
+                            if (!double.IsInfinity(db) && !double.IsNaN(db))
+                            {
+                                sumDb += db;
+                                validPixels++;
+                            }
                         }
                     }
                 }
