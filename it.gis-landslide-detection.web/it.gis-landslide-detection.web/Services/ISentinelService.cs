@@ -10,8 +10,8 @@ public interface ISentinelService
 public record SentinelData(
     int    SoilMoistureScore,   // 0-100
     double VvMeanDb,            // valore grezzo in dB
-    int    SoilMoistureScoreDry,// score periodo asciutto (confronto)
-    double DeltaScore,          // differenza saturo - asciutto
+    int?   SoilMoistureScoreDry,// score periodo asciutto (confronto)
+    double? DeltaScore,          // differenza saturo - asciutto
     string Periodo,             // es. '2024-06-15 / 2024-07-15'
     string Fonte
 );

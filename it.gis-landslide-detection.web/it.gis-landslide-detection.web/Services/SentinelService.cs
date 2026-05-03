@@ -94,12 +94,13 @@ namespace it.gis_landslide_detection.web.Services
                 double dbDry      = _options.DbDryThreshold;       // -20.0 dB = suolo secco
 
                 int currentScore  = (int)Math.Clamp((currentDb.Value - dbDry) / (dbSat - dbDry) * 100.0, 0, 100);
-                int dryScore      = dryDb.HasValue
+                int? dryScore     = dryDb.HasValue
                     ? (int)Math.Clamp((dryDb.Value - dbDry) / (dbSat - dbDry) * 100.0, 0, 100)
-                    : 0;
-                int deltaScore    = currentScore - dryScore;
+                    : null;
+                double? deltaScore = dryScore.HasValue ? currentScore - dryScore.Value : null;
 
                 string periodo    = $"{currentFrom} / {currentTo}";
+                string fonte      = dryDb.HasValue ? "CDSE Sentinel-1" : "CDSE Sentinel-1 (Missing Dry Baseline)";
 
                 var result = new SentinelData(
                     SoilMoistureScore:    currentScore,
@@ -107,7 +108,7 @@ namespace it.gis_landslide_detection.web.Services
                     SoilMoistureScoreDry: dryScore,
                     DeltaScore:           deltaScore,
                     Periodo:              periodo,
-                    Fonte:                "CDSE Sentinel-1"
+                    Fonte:                fonte
                 );
 
                 // Cache del risultato combinato per 7 giorni (aggiornamento settimanale)
@@ -379,7 +380,7 @@ function evaluatePixel(sample) {
                 // Se il punto più vicino è troppo lontano (> 0.05 gradi, ~5km), consideriamo i dati non disponibili
                 if (minDist > 0.05) return null;
 
-                return new SentinelData(bestScore, bestVv, 0, 0, periodo, "Fallback Grid");
+                return new SentinelData(bestScore, bestVv, null, null, periodo, "Fallback Grid");
             }
             else if (File.Exists(globalPath))
             {
@@ -390,8 +391,8 @@ function evaluatePixel(sample) {
                 return new SentinelData(
                     SoilMoistureScore:    root.GetProperty("soil_moisture_score_sat").GetInt32(),
                     VvMeanDb:             root.GetProperty("vv_mean_db_saturated").GetDouble(),
-                    SoilMoistureScoreDry: 0,
-                    DeltaScore:           0,
+                    SoilMoistureScoreDry: null,
+                    DeltaScore:           null,
                     Periodo:              root.TryGetProperty("saturated_period", out var p) ? p.GetString() ?? "" : "",
                     Fonte:                "Fallback Global"
                 );
