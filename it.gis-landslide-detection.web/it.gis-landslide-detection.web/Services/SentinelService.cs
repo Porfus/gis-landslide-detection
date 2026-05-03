@@ -112,8 +112,8 @@ namespace it.gis_landslide_detection.web.Services
                     Fonte:                fonte
                 );
 
-                // Cache del risultato combinato per 7 giorni (aggiornamento settimanale)
-                _cache.Set(cacheKey, result, TimeSpan.FromDays(7));
+                // Cache del risultato combinato per 24 ore (sistema di sicurezza: reattività agli eventi meteo)
+                _cache.Set(cacheKey, result, TimeSpan.FromHours(24));
                 return result;
             }
             catch (Exception ex)
@@ -375,9 +375,8 @@ function evaluatePixel(sample) {
                 using var doc = JsonDocument.Parse(json);
                 var grid = doc.RootElement.GetProperty("grid");
 
-                double minDist  = double.MaxValue;
-                double bestVv   = -15.0;
-                int    bestScore = 75;
+                double minDist = double.MaxValue;
+                double bestVv  = -15.0;
 
                 foreach (var cell in grid.EnumerateArray())
                 {
@@ -386,11 +385,17 @@ function evaluatePixel(sample) {
                     var dist = Math.Sqrt(Math.Pow(cLat - queryLat, 2) + Math.Pow(cLng - queryLng, 2));
                     if (dist < minDist)
                     {
-                        minDist   = dist;
-                        bestVv    = cell.GetProperty("vv_db").GetDouble();
-                        bestScore = cell.GetProperty("score").GetInt32();
+                        minDist = dist;
+                        bestVv  = cell.GetProperty("vv_db").GetDouble();
                     }
                 }
+
+                // Ricalcola lo score dal vv_db grezzo usando le soglie correnti (_options)
+                // così il fallback è sempre coerente con il calcolo live, indipendentemente
+                // da con quali soglie è stato generato il JSON dal notebook Python.
+                int bestScore = (int)Math.Clamp(
+                    (bestVv - _options.DbDryThreshold) / (_options.DbSaturatedThreshold - _options.DbDryThreshold) * 100.0,
+                    0, 100);
 
                 var root    = doc.RootElement;
                 string periodo = root.TryGetProperty("period", out var periodoEl) ? periodoEl.GetString() ?? "" : "";
@@ -398,7 +403,7 @@ function evaluatePixel(sample) {
                 // Se il punto più vicino è troppo lontano (> 0.05 gradi, ~5km), consideriamo i dati non disponibili
                 if (minDist > 0.05) return null;
 
-                return new SentinelData(bestScore, bestVv, null, null, null, periodo, "Fallback Grid");
+                return new SentinelData(bestScore, bestVv, null, null, null, periodo, "⚠️ Fallback Grid (dati statici: " + periodo + ")");
             }
             else if (File.Exists(globalPath))
             {
@@ -413,7 +418,7 @@ function evaluatePixel(sample) {
                     DeltaScore:           null,
                     VvDeltaDb:            null,
                     Periodo:              root.TryGetProperty("saturated_period", out var p) ? p.GetString() ?? "" : "",
-                    Fonte:                "Fallback Global"
+                    Fonte:                "⚠️ Fallback Global (dati statici: non aggiornato)"
                 );
             }
 
