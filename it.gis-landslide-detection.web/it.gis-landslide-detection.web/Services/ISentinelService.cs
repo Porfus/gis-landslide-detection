@@ -12,6 +12,7 @@ public record SentinelData(
     double VvMeanDb,            // valore grezzo in dB
     int?   SoilMoistureScoreDry,// score periodo asciutto (confronto)
     double? DeltaScore,          // differenza saturo - asciutto
+    double? VvDeltaDb,           // ΔdB grezzo (diagnostico)
     string Periodo,             // es. '2024-06-15 / 2024-07-15'
     string Fonte
 );

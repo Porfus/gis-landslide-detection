@@ -89,7 +89,7 @@ namespace it.gis_landslide_detection.web.Services
                 //    potrebbe non essere rappresentativo. Parametrizzato via DryBaselineMonthStart/End.
                 double? dryDb = await GetOrFetchDryBaselineAsync(lat, lng, token);
 
-                double deltaDb    = dryDb.HasValue ? currentDb.Value - dryDb.Value : 0.0;
+                double? vvDeltaDb = dryDb.HasValue ? currentDb.Value - dryDb.Value : null;
                 double dbSat      = _options.DbSaturatedThreshold; // -5.0 dB = suolo saturo
                 double dbDry      = _options.DbDryThreshold;       // -20.0 dB = suolo secco
 
@@ -107,6 +107,7 @@ namespace it.gis_landslide_detection.web.Services
                     VvMeanDb:             currentDb.Value,
                     SoilMoistureScoreDry: dryScore,
                     DeltaScore:           deltaScore,
+                    VvDeltaDb:            vvDeltaDb,
                     Periodo:              periodo,
                     Fonte:                fonte
                 );
@@ -259,7 +260,7 @@ function evaluatePixel(sample) {
         /// </summary>
         private double? ParseMeanVvDb(byte[] tiffBytes)
         {
-            string tempTiff = Path.GetTempFileName();
+            string tempTiff = Path.Combine(Path.GetTempPath(), $"sentinel_{Guid.NewGuid():N}.tiff");
             try
             {
                 File.WriteAllBytes(tempTiff, tiffBytes);
@@ -302,7 +303,11 @@ function evaluatePixel(sample) {
                 
                 // Se il risultato è esattamente 0.0 dB (ovvero backscatter lineare 1.0)
                 // significa che l'API ha restituito un'immagine di background/no-data
-                if (Math.Abs(resultDb) < 0.0001) return null;
+                if (Math.Abs(resultDb) < 0.0001)
+                {
+                    _logger.LogWarning("SAR result suspiciously close to 0.0 dB ({Db:F6}), likely no-data image. validPixels={Px}", resultDb, validPixels);
+                    return null;
+                }
                 
                 return resultDb;
             }
@@ -342,7 +347,14 @@ function evaluatePixel(sample) {
             if (doc.RootElement.TryGetProperty("access_token", out var tokenElement))
             {
                 var t = tokenElement.GetString();
-                _cache.Set("copernicus:token", t, TimeSpan.FromMinutes(8));
+
+                // Leggi expires_in dalla risposta OAuth2 per una cache TTL dinamica
+                // Default: 8 minuti se il campo non è presente (margine conservativo)
+                int cacheSec = 480;
+                if (doc.RootElement.TryGetProperty("expires_in", out var expiresEl))
+                    cacheSec = Math.Max(60, expiresEl.GetInt32() - 120); // margine di 2 min
+
+                _cache.Set("copernicus:token", t, TimeSpan.FromSeconds(cacheSec));
                 return t;
             }
 
@@ -386,7 +398,7 @@ function evaluatePixel(sample) {
                 // Se il punto più vicino è troppo lontano (> 0.05 gradi, ~5km), consideriamo i dati non disponibili
                 if (minDist > 0.05) return null;
 
-                return new SentinelData(bestScore, bestVv, null, null, periodo, "Fallback Grid");
+                return new SentinelData(bestScore, bestVv, null, null, null, periodo, "Fallback Grid");
             }
             else if (File.Exists(globalPath))
             {
@@ -399,6 +411,7 @@ function evaluatePixel(sample) {
                     VvMeanDb:             root.GetProperty("vv_mean_db_saturated").GetDouble(),
                     SoilMoistureScoreDry: null,
                     DeltaScore:           null,
+                    VvDeltaDb:            null,
                     Periodo:              root.TryGetProperty("saturated_period", out var p) ? p.GetString() ?? "" : "",
                     Fonte:                "Fallback Global"
                 );
