@@ -1,9 +1,9 @@
-using it.gis_landslide_detection.web.Models;
+﻿using it.gis_landslide_detection.web.Models;
 using NetTopologySuite.Geometries;
 
 namespace it.gis_landslide_detection.web.Services;
 
-public class TrailRiskCalculator : ITrailRiskCalculator
+public class TrailHazardCalculator : ITrailHazardCalculator
 {
     public static readonly string[] TipiPericolosi = {
         "Colamento rapido",
@@ -24,7 +24,7 @@ public class TrailRiskCalculator : ITrailRiskCalculator
         };
     }
 
-    public TrailRiskResult CalculateRisk(HikingTrail trail, IReadOnlyCollection<IffiZone> intersectingZones)
+    public TrailHazardResult CalculateHazard(HikingTrail trail, IReadOnlyCollection<IffiZone> intersectingZones)
     {
         if (trail == null) throw new ArgumentNullException(nameof(trail));
         
@@ -34,10 +34,10 @@ public class TrailRiskCalculator : ITrailRiskCalculator
         {
             // Nessuna interazione: il sentiero è sicuro. Recupera il centroide del trail come punto di riferimento mappa
             var sentieroCentroid = trail.Geom?.Centroid;
-            return new TrailRiskResult(
+            return new TrailHazardResult(
                 TrailId: trail.Id,
                 TrailName: trail.Name,
-                HasRisk: false,
+                HasHazard: false,
                 Message: "Nessuna intersezione con aree franose rilevata. Il sentiero è sicuro dal punto di vista storico.",
                 ReferenceLat: sentieroCentroid?.Y ?? 43.098,
                 ReferenceLng: sentieroCentroid?.X ?? 13.003,
@@ -47,7 +47,7 @@ public class TrailRiskCalculator : ITrailRiskCalculator
             );
         }
 
-        // Caso con rischio: trova la zona più pericolosa
+        // Caso con pericolosità: trova la zona più pericolosa
         var zonaPiuPericolosa = zones
             .OrderBy(z => 
             {
@@ -69,10 +69,10 @@ public class TrailRiskCalculator : ITrailRiskCalculator
                 puntoCritico = new Point(13.003, 43.098); // fallback assoluto
         }
 
-        return new TrailRiskResult(
+        return new TrailHazardResult(
             TrailId: trail.Id,
             TrailName: trail.Name,
-            HasRisk: true,
+            HasHazard: true,
             Message: $"Attenzione: il sentiero interseca {zones.Count} area/e franosa/e. Tipo più critico rilevato: {zonaPiuPericolosa.NomeTipo}.",
             ReferenceLat: puntoCritico.Y,
             ReferenceLng: puntoCritico.X,

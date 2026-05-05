@@ -1,4 +1,4 @@
-using it.gis_landslide_detection.web.Data;
+﻿using it.gis_landslide_detection.web.Data;
 using it.gis_landslide_detection.web.Models;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite;
@@ -9,12 +9,12 @@ namespace it.gis_landslide_detection.web.Services
     public class IffiService : IIffiService
     {
         private readonly ApplicationDbContext _context;
-        private readonly ITrailRiskCalculator _riskCalculator;
+        private readonly ITrailHazardCalculator _hazardCalculator;
 
-        public IffiService(ApplicationDbContext context, ITrailRiskCalculator riskCalculator)
+        public IffiService(ApplicationDbContext context, ITrailHazardCalculator hazardCalculator)
         {
             _context = context;
-            _riskCalculator = riskCalculator;
+            _hazardCalculator = hazardCalculator;
         }
 
         public async Task<IffiZone?> GetZoneAsync(double lat, double lng)
@@ -25,12 +25,12 @@ namespace it.gis_landslide_detection.web.Services
             return await _context.IffiZones
                 .Where(z => z.Geom != null 
                          && z.NomeTipo != null
-                         && TrailRiskCalculator.TipiPericolosi.Contains(z.NomeTipo) // filtro tipo
+                         && TrailHazardCalculator.TipiPericolosi.Contains(z.NomeTipo) // filtro tipo
                          && z.Geom.Contains(punto))
                 .FirstOrDefaultAsync();
         }
 
-        public async Task<TrailRiskResult?> GetTrailRiskAsync(long trailId)
+        public async Task<TrailHazardResult?> GetTrailHazardAsync(long trailId)
         {
             var trail = await _context.HikingTrails
                 .FirstOrDefaultAsync(t => t.Id == trailId);
@@ -80,8 +80,8 @@ namespace it.gis_landslide_detection.web.Services
                 .Where(z => z.Geom != null && z.Geom.Intersects(simplifiedTrail))
                 .ToList();
 
-            // Delega la business logic del calcolo del rischio al Calculator
-            return _riskCalculator.CalculateRisk(trail, zoneIntersecanti);
+            // Delega la business logic del calcolo del pericolosità al Calculator
+            return _hazardCalculator.CalculateHazard(trail, zoneIntersecanti);
         }
     }
 }

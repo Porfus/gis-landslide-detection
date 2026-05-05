@@ -1,13 +1,13 @@
-namespace it.gis_landslide_detection.web.Services;
+﻿namespace it.gis_landslide_detection.web.Services;
 
 /// <summary>
-/// Motore di calcolo del rischio finale: combina hazard storico IFFI,
+/// Motore di calcolo del pericolosità finale: combina hazard storico IFFI,
 /// soil moisture SAR, Antecedent Precipitation Index e pioggia istantanea
-/// in un unico RiskScore 0-100 con livello associato.
+/// in un unico HazardScore 0-100 con livello associato.
 /// </summary>
-public interface IRiskScoreEngine
+public interface IHazardScoreEngine
 {
-    RiskAssessment Calculate(
+    HazardAssessment Calculate(
         double iffiHazardScore,
         string? iffiTipo,
         int soilMoistureScore,
@@ -19,12 +19,12 @@ public interface IRiskScoreEngine
 }
 
 /// <summary>
-/// Risultato completo del calcolo di rischio, con tracciabilità
+/// Risultato completo del calcolo di pericolosità, con tracciabilità
 /// di tutti i fattori intermedi e dei meccanismi di override attivati.
 /// </summary>
-public record RiskAssessment(
-    double RiskScore,
-    string RiskLevel,
+public record HazardAssessment(
+    double HazardScore,
+    string HazardLevel,
     double SaturationIndex,
     double TriggerMultiplier,
     double BaseHazard,

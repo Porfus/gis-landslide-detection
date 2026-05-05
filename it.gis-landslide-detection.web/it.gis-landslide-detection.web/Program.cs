@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using it.gis_landslide_detection.web.Data;
 using it.gis_landslide_detection.web.Services;
@@ -33,9 +33,9 @@ builder.Services.Configure<it.gis_landslide_detection.web.Models.CopernicusApiOp
     builder.Configuration.GetSection("CopernicusApi"));
 
 builder.Services.AddScoped<IIffiService, IffiService>();
-builder.Services.AddScoped<ITrailRiskCalculator, TrailRiskCalculator>();
+builder.Services.AddScoped<ITrailHazardCalculator, TrailHazardCalculator>();
 builder.Services.AddScoped<IWeatherService, WeatherService>();
-builder.Services.AddScoped<IRiskScoreEngine, RiskScoreEngine>();
+builder.Services.AddScoped<IHazardScoreEngine, HazardScoreEngine>();
 
 
 builder.Services.AddCors(options =>

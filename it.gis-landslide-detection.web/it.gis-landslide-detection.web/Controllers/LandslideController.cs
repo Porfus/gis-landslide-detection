@@ -1,4 +1,4 @@
-using it.gis_landslide_detection.web.Data;
+﻿using it.gis_landslide_detection.web.Data;
 using it.gis_landslide_detection.web.Models;
 using it.gis_landslide_detection.web.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -35,7 +35,7 @@ public class LandslideController : Controller
             82,
             85,
             true,
-            "Sentiero bloccato: rischio frana critico rilevato."
+            "Sentiero bloccato: pericolosità frana critica rilevata."
         );
         return Ok(response);
 
@@ -50,8 +50,8 @@ public class LandslideController : Controller
         
 
         // VERIFICA REALE SUL DATABASE IFFI
-        bool historicalRisk = false;
-        string iffiTipo = "Nessun rischio rilevato";
+        bool historicalHazard = false;
+        string iffiTipo = "Nessuna pericolosità rilevata";
         double scoreStorico = 0.0;
 
         try 
@@ -59,7 +59,7 @@ public class LandslideController : Controller
             var iffiZone = await _iffiService.GetZoneAsync(lat, lng);
             if (iffiZone != null)
             {
-                historicalRisk = true;
+                historicalHazard = true;
                 iffiTipo = iffiZone.NomeTipo ?? "Sconosciuto";
                 scoreStorico = iffiTipo switch
                 {
@@ -110,9 +110,9 @@ public class LandslideController : Controller
 
         double saturationIndex = (soilScore * wSoil) + (apiScore * wApi) + (currentRainScore * wRain);
 
-        double riskScore = (scoreStorico * 0.35) + (saturationIndex * 0.65);
+        double hazardScore = (scoreStorico * 0.35) + (saturationIndex * 0.65);
 
-        string riskLevel = riskScore switch {
+        string hazardLevel = hazardScore switch {
             >= 75 => "CRITICAL",
             >= 50 => "HIGH",
             >= 30 => "MEDIUM",
@@ -122,16 +122,16 @@ public class LandslideController : Controller
         return Ok(new Response(
             lat: lat,
             lng: lng,
-            riskScore: (int)riskScore,
-            riskLevel: riskLevel,
-            message: riskLevel switch {
-                "CRITICAL" => "⚠️ EMERGENZA: Sentiero chiuso. Rischio frana altissimo.",
+            hazardScore: (int)hazardScore,
+            hazardLevel: hazardLevel,
+            message: hazardLevel switch {
+                "CRITICAL" => "⚠️ EMERGENZA: Sentiero chiuso. Pericolosità frana altissima.",
                 "HIGH"     => "🚩 PERICOLO: Escursione sconsigliata. Suolo instabile.",
                 "MEDIUM"   => "🔸 ATTENZIONE: Percorribile con cautela. Possibili detriti sul sentiero.",
                 "LOW"      => "✅ SICURO: Condizioni ottimali. Goditi l'escursione!",
                 _          => "Dati non disponibili."
             },
-            historicalRisk: historicalRisk,
+            historicalHazard: historicalHazard,
             iffiLevel: iffiTipo, 
             historicalScore: (int)scoreStorico,
             soilMoisture: soilScore,

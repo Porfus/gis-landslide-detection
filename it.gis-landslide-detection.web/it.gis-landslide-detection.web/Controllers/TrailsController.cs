@@ -1,4 +1,4 @@
-// Controllers/TrailsController.cs
+﻿// Controllers/TrailsController.cs
 using it.gis_landslide_detection.web.Data;
 using it.gis_landslide_detection.web.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -16,16 +16,16 @@ namespace it.gis_landslide_detection.web.Controllers
         private readonly IIffiService _iffi;
         private readonly ISentinelService _sentinel;
         private readonly IWeatherService _weather;
-        private readonly IRiskScoreEngine _riskEngine;
+        private readonly IHazardScoreEngine _hazardEngine;
         private readonly ILogger<TrailsController> _logger;
 
-        public TrailsController(ApplicationDbContext context, IIffiService iffiService, ISentinelService sentinelService, IWeatherService weatherService, IRiskScoreEngine riskEngine, ILogger<TrailsController> logger)
+        public TrailsController(ApplicationDbContext context, IIffiService iffiService, ISentinelService sentinelService, IWeatherService weatherService, IHazardScoreEngine hazardEngine, ILogger<TrailsController> logger)
         {
             _context = context;
             _iffi = iffiService;
             _sentinel = sentinelService;
             _weather = weatherService;
-            _riskEngine = riskEngine;
+            _hazardEngine = hazardEngine;
             _logger = logger;
         }
 
@@ -56,18 +56,18 @@ namespace it.gis_landslide_detection.web.Controllers
             return Ok(trails);
         }
 
-        // GET /api/trails/{id}/risk
-        [HttpGet("{id}/risk")]
-        public async Task<IActionResult> GetRisk(long id)
+        // GET /api/trails/{id}/hazard
+        [HttpGet("{id}/hazard")]
+        public async Task<IActionResult> GetHazard(long id)
         {
           try
           {
             // get punto critico lungo il trail
-            var iffiResult = await _iffi.GetTrailRiskAsync(id);
+            var iffiResult = await _iffi.GetTrailHazardAsync(id);
             if (iffiResult == null)
                 return NotFound(new { error = $"Trail {id} non trovato." });
 
-            // Usa le coordinate del punto critico o del trail calcolate dal risk calculator per gli altri service
+            // Usa le coordinate del punto critico o del trail calcolate dal hazard calculator per gli altri service
             double queryLat = iffiResult.ReferenceLat;
             double queryLng = iffiResult.ReferenceLng;
 
@@ -91,9 +91,9 @@ namespace it.gis_landslide_detection.web.Controllers
             double precipMmh = weather?.PrecipitationMmh ?? 0;
             string meteoSrc = weather?.Source ?? "fallback";
 
-            // --- Calcolo rischio tramite RiskScoreEngine (R1/R2/R3 inclusi) ---
+            // --- Calcolo pericolosità tramite HazardScoreEngine (R1/R2/R3 inclusi) ---
             double histScore = iffiResult.HazardScore;
-            var risk = _riskEngine.Calculate(
+            var hazard = _hazardEngine.Calculate(
                 iffiHazardScore:  histScore,
                 iffiTipo:         iffiResult.IffiTipo,
                 soilMoistureScore: soilScore,
@@ -103,7 +103,7 @@ namespace it.gis_landslide_detection.web.Controllers
                 weatherDataUnavailable: weatherDataUnavailable
             );
 
-            double riskScore = Safe(risk.RiskScore);
+            double hazardScore = Safe(hazard.HazardScore);
             histScore = Safe(histScore);
 
             return Ok(new
@@ -112,18 +112,18 @@ namespace it.gis_landslide_detection.web.Controllers
                 TrailId = id,
                 TrailName = iffiResult.TrailName,
                 // Score finale
-                RiskScore = (int)riskScore,
-                RiskLevel = risk.RiskLevel,
-                Message = risk.RiskLevel switch
+                HazardScore = (int)hazardScore,
+                HazardLevel = hazard.HazardLevel,
+                Message = hazard.HazardLevel switch
                 {
-                    "CRITICAL" => "Sentiero bloccato: rischio frana critico.",
+                    "CRITICAL" => "Sentiero bloccato: pericolosità frana critica.",
                     "HIGH"     => "Sconsigliato: elevata probabilità di instabilità.",
                     "MEDIUM"   => "Percorrere con cautela.",
                     _          => "Sentiero sicuro."
                 },
                 // Punto critico da mostrare sulla mappa
-                CriticalPointLat = iffiResult.HasRisk ? Safe(queryLat) : (double?)null,
-                CriticalPointLng = iffiResult.HasRisk ? Safe(queryLng) : (double?)null,
+                CriticalPointLat = iffiResult.HasHazard ? Safe(queryLat) : (double?)null,
+                CriticalPointLng = iffiResult.HasHazard ? Safe(queryLng) : (double?)null,
                 
                 // Componenti diagnostiche
                 Components = new 
@@ -132,26 +132,26 @@ namespace it.gis_landslide_detection.web.Controllers
                     SoilMoisture = new { 
                         Unavailable = sentinelUnavailable, 
                         Score = soilScore, 
-                        Weight = Safe(Math.Round(risk.WSoil, 4)), 
+                        Weight = Safe(Math.Round(hazard.WSoil, 4)), 
                         VvDb = Safe(Math.Round(vvDb, 2)), 
                         Source = sentinelSrc 
                     },
-                    AntecedentPrecip = new { Score = apiScore, Weight = Safe(Math.Round(risk.WApi, 4)), ApiMm = Safe(Math.Round(apiMm, 2)), Days = 7, DecayK = 0.85 },
-                    CurrentRain = new { Score = currentRainScore, Weight = Safe(Math.Round(risk.WRain, 4)), Mmh = Safe(Math.Round(precipMmh, 2)), Source = meteoSrc },
+                    AntecedentPrecip = new { Score = apiScore, Weight = Safe(Math.Round(hazard.WApi, 4)), ApiMm = Safe(Math.Round(apiMm, 2)), Days = 7, DecayK = 0.85 },
+                    CurrentRain = new { Score = currentRainScore, Weight = Safe(Math.Round(hazard.WRain, 4)), Mmh = Safe(Math.Round(precipMmh, 2)), Source = meteoSrc },
                     // Diagnostica formula
-                    SaturationIndex = Safe(Math.Round(risk.SaturationIndex, 2)),
-                    TriggerMultiplier = Safe(Math.Round(risk.TriggerMultiplier, 4)),
-                    BaseHazard = Safe(risk.BaseHazard),
-                    FlashOverrideApplied = risk.FlashOverrideApplied,
-                    SaturationFloorApplied = risk.SaturationFloorApplied,
-                    WeatherDataUnavailable = risk.WeatherDataUnavailable
+                    SaturationIndex = Safe(Math.Round(hazard.SaturationIndex, 2)),
+                    TriggerMultiplier = Safe(Math.Round(hazard.TriggerMultiplier, 4)),
+                    BaseHazard = Safe(hazard.BaseHazard),
+                    FlashOverrideApplied = hazard.FlashOverrideApplied,
+                    SaturationFloorApplied = hazard.SaturationFloorApplied,
+                    WeatherDataUnavailable = hazard.WeatherDataUnavailable
                 }
             });
           }
           catch (Exception ex)
           {
-              _logger.LogError(ex, "Errore nel calcolo del rischio per trail {TrailId}", id);
-              return StatusCode(500, new { error = $"Errore interno nel calcolo del rischio per il trail {id}.", detail = ex.Message });
+              _logger.LogError(ex, "Errore nel calcolo della pericolosità per trail {TrailId}", id);
+              return StatusCode(500, new { error = $"Errore interno nel calcolo della pericolosità per il trail {id}.", detail = ex.Message });
           }
         }
 

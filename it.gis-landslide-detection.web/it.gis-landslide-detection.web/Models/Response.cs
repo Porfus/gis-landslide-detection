@@ -1,15 +1,15 @@
-namespace it.gis_landslide_detection.web.Models;
+﻿namespace it.gis_landslide_detection.web.Models;
 
 public record Response
 {
-    public Response(double lat, double lng, int riskScore, string? riskLevel, string? message, bool historicalRisk, string iffiLevel, int historicalScore, int soilMoisture, double vvMeanDb, double deltaScore, string sentinelSource, int precipitation, double precipitationMmh)
+    public Response(double lat, double lng, int hazardScore, string? hazardLevel, string? message, bool historicalHazard, string iffiLevel, int historicalScore, int soilMoisture, double vvMeanDb, double deltaScore, string sentinelSource, int precipitation, double precipitationMmh)
     {
         Lat = lat;
         Lng = lng;
-        RiskScore = riskScore;
-        RiskLevel = riskLevel;
+        HazardScore = hazardScore;
+        HazardLevel = hazardLevel;
         Message = message;
-        HistoricalRisk = historicalRisk;
+        HistoricalHazard = historicalHazard;
         IffiLevel = iffiLevel;
         HistoricalScore = historicalScore;
         SoilMoisture = soilMoisture;
@@ -22,11 +22,11 @@ public record Response
 
     public double Lat { get; set; }
     public double Lng { get; set; }
-    public int RiskScore { get; set; }
-    public string? RiskLevel { get; set; }
+    public int HazardScore { get; set; }
+    public string? HazardLevel { get; set; }
     public string? Message { get; set; }
     // Componente 1 — storico IFFI
-    public bool HistoricalRisk { get; set; }
+    public bool HistoricalHazard { get; set; }
 
     public string IffiLevel { get; set; }
     public int HistoricalScore { get; set; }

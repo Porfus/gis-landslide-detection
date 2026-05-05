@@ -1,7 +1,7 @@
-namespace it.gis_landslide_detection.web.Services;
+﻿namespace it.gis_landslide_detection.web.Services;
 
 /// <summary>
-/// Implementazione del motore di calcolo rischio frane.
+/// Implementazione del motore di calcolo pericolosità frane.
 ///
 /// Modello Moltiplicativo Ibrido con tre meccanismi di correzione:
 ///   R1 — Flash Event Override:   pioggia >50 mm/h → floor al 75% del baseHazard
@@ -13,10 +13,10 @@ namespace it.gis_landslide_detection.web.Services;
 ///   saturationIndex = soilScore×wSoil + apiScore×wApi + currentRainScore×wRain
 ///   baseHazard      = max(iffiScore, ε=25)
 ///   triggerMult     = 0.3 + saturationIndex/100
-///   riskScore       = min(100, baseHazard × triggerMult)
-///   riskScore       = max(riskScore, flashFloor, satFloor)   ← R1/R2
+///   hazardScore       = min(100, baseHazard × triggerMult)
+///   hazardScore       = max(hazardScore, flashFloor, satFloor)   ← R1/R2
 /// </summary>
-public class RiskScoreEngine : IRiskScoreEngine
+public class HazardScoreEngine : IHazardScoreEngine
 {
     // ── Soglie di override ────────────────────────────────────────────────
     private const double FlashRainThresholdMmh = 50.0;   // R1: soglia temporale V-shaped
@@ -26,7 +26,7 @@ public class RiskScoreEngine : IRiskScoreEngine
     private const double SaturationFloorCoeff  = 0.50;    // R2: coefficiente lineare
     private const double Epsilon               = 25.0;    // Suscettibilità base per zone non mappate IFFI
 
-    public RiskAssessment Calculate(
+    public HazardAssessment Calculate(
         double iffiHazardScore,
         string? iffiTipo,
         int soilMoistureScore,
@@ -74,10 +74,10 @@ public class RiskScoreEngine : IRiskScoreEngine
                                + (apiScore * wApi)
                                + (currentRainScore * wRain);
 
-        // ── 3. Rischio Finale (Modello Moltiplicativo Ibrido) ────────────
+        // ── 3. Pericolosità Finale (Modello Moltiplicativo Ibrido) ────────────
         double baseHazard = Math.Max(iffiHazardScore, Epsilon);
         double triggerMultiplier = 0.3 + (saturationIndex / 100.0);
-        double riskScore = Math.Min(100.0, baseHazard * triggerMultiplier);
+        double hazardScore = Math.Min(100.0, baseHazard * triggerMultiplier);
 
         // ── R1: Flash Event Override ─────────────────────────────────────
         // Un temporale V-shaped (>50 mm/h) è un trigger indipendente dalla saturazione
@@ -87,9 +87,9 @@ public class RiskScoreEngine : IRiskScoreEngine
         if (precipMmh > FlashRainThresholdMmh)
         {
             double flashFloor = baseHazard * FlashHazardFactor;
-            if (flashFloor > riskScore)
+            if (flashFloor > hazardScore)
             {
-                riskScore = flashFloor;
+                hazardScore = flashFloor;
                 flashOverrideApplied = true;
             }
         }
@@ -102,27 +102,27 @@ public class RiskScoreEngine : IRiskScoreEngine
         if (saturationIndex > SaturationFloorThreshold)
         {
             double satFloor = SaturationFloorBase + (saturationIndex * SaturationFloorCoeff);
-            if (satFloor > riskScore)
+            if (satFloor > hazardScore)
             {
-                riskScore = satFloor;
+                hazardScore = satFloor;
                 saturationFloorApplied = true;
             }
         }
 
         // ── 4. Clamp finale ──────────────────────────────────────────────
-        riskScore = Math.Min(100.0, riskScore);
+        hazardScore = Math.Min(100.0, hazardScore);
 
         // ── R4: Weather Data Fallback ────────────────────────────────────
-        // Se i dati meteo non sono disponibili, eleviamo precauzionalmente il rischio di uno step.
-        // Un sistema di sicurezza non deve mai abbassare il rischio per assenza di dati.
+        // Se i dati meteo non sono disponibili, eleviamo precauzionalmente il pericolosità di uno step.
+        // Un sistema di sicurezza non deve mai abbassare il pericolosità per assenza di dati.
         if (weatherDataUnavailable)
         {
-            if (riskScore < 30.0) riskScore = 30.0;
-            else if (riskScore < 50.0) riskScore = 50.0;
-            else if (riskScore < 75.0) riskScore = 75.0;
+            if (hazardScore < 30.0) hazardScore = 30.0;
+            else if (hazardScore < 50.0) hazardScore = 50.0;
+            else if (hazardScore < 75.0) hazardScore = 75.0;
         }
 
-        string level = riskScore switch
+        string level = hazardScore switch
         {
             >= 75 => "CRITICAL",
             >= 50 => "HIGH",
@@ -130,9 +130,9 @@ public class RiskScoreEngine : IRiskScoreEngine
             _     => "LOW"
         };
 
-        return new RiskAssessment(
-            RiskScore:               riskScore,
-            RiskLevel:               level,
+        return new HazardAssessment(
+            HazardScore:               hazardScore,
+            HazardLevel:               level,
             SaturationIndex:         saturationIndex,
             TriggerMultiplier:       triggerMultiplier,
             BaseHazard:              baseHazard,

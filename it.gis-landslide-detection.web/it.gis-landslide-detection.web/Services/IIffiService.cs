@@ -1,4 +1,4 @@
-using it.gis_landslide_detection.web.Models;
+﻿using it.gis_landslide_detection.web.Models;
 
 namespace it.gis_landslide_detection.web.Services
 {
@@ -8,14 +8,14 @@ namespace it.gis_landslide_detection.web.Services
         Task<IffiZone?> GetZoneAsync(double lat, double lng);
 
         // Nuovo metodo — trail completo
-        Task<TrailRiskResult?> GetTrailRiskAsync(long trailId);
+        Task<TrailHazardResult?> GetTrailHazardAsync(long trailId);
     }
 
     // DTO per il risultato del trail
-    public record TrailRiskResult(
+    public record TrailHazardResult(
         long TrailId,
         string? TrailName,
-        bool HasRisk,
+        bool HasHazard,
         string Message,
         double ReferenceLat,   // coordinate del punto più pericoloso o del centroide del sentiero
         double ReferenceLng,
@@ -24,8 +24,8 @@ namespace it.gis_landslide_detection.web.Services
         double HazardScore         // punteggio di pericolosità basato sul tipo
     );
 
-    public interface ITrailRiskCalculator
+    public interface ITrailHazardCalculator
     {
-        TrailRiskResult CalculateRisk(HikingTrail trail, IReadOnlyCollection<IffiZone> intersectingZones);
+        TrailHazardResult CalculateHazard(HikingTrail trail, IReadOnlyCollection<IffiZone> intersectingZones);
     }
 }
