@@ -24,7 +24,7 @@ namespace it.gis_landslide_detection.web.Services
         private readonly IMemoryCache _cache;
         private readonly CopernicusApiOptions _options;
         private readonly ILogger<SentinelService> _logger;
-        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
+        private static readonly SemaphoreSlim[] _shardedLocks = System.Linq.Enumerable.Range(0, 256).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
         public SentinelService(
             IWebHostEnvironment env,
@@ -51,7 +51,7 @@ namespace it.gis_landslide_detection.web.Services
                 return cachedData;
             }
 
-            var semaphore = _locks.GetOrAdd(cacheKey, _ => new SemaphoreSlim(1, 1));
+            var semaphore = _shardedLocks[Math.Abs(cacheKey.GetHashCode()) % 256];
             await semaphore.WaitAsync();
 
             try
@@ -251,19 +251,19 @@ function evaluatePixel(sample) {
             }
 
             var tiffBytes = await response.Content.ReadAsByteArrayAsync();
-            return ParseMeanVvDb(tiffBytes);
+            return await ParseMeanVvDbAsync(tiffBytes);
         }
 
         /// <summary>
         ///   Legge il TIFF e calcola la media in dB secondo l'approccio corretto:
         ///   converti prima ogni pixel in dB, poi fai la media dei dB.
         /// </summary>
-        private double? ParseMeanVvDb(byte[] tiffBytes)
+        private async Task<double?> ParseMeanVvDbAsync(byte[] tiffBytes)
         {
             string tempTiff = Path.Combine(Path.GetTempPath(), $"sentinel_{Guid.NewGuid():N}.tiff");
             try
             {
-                File.WriteAllBytes(tempTiff, tiffBytes);
+                await File.WriteAllBytesAsync(tempTiff, tiffBytes);
                 using var tiff = Tiff.Open(tempTiff, "r");
                 if (tiff == null) return null;
 
@@ -300,14 +300,6 @@ function evaluatePixel(sample) {
 
                 // STEP 2: media dei valori in dB (non media lineare poi log)
                 double resultDb = sumDb / validPixels;
-                
-                // Se il risultato è esattamente 0.0 dB (ovvero backscatter lineare 1.0)
-                // significa che l'API ha restituito un'immagine di background/no-data
-                if (Math.Abs(resultDb) < 0.0001)
-                {
-                    _logger.LogWarning("SAR result suspiciously close to 0.0 dB ({Db:F6}), likely no-data image. validPixels={Px}", resultDb, validPixels);
-                    return null;
-                }
                 
                 return resultDb;
             }

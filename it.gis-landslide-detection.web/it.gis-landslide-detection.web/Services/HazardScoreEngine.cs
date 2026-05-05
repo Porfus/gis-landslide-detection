@@ -1,4 +1,4 @@
-﻿namespace it.gis_landslide_detection.web.Services;
+namespace it.gis_landslide_detection.web.Services;
 
 /// <summary>
 /// Implementazione del motore di calcolo pericolosità frane.
@@ -33,21 +33,22 @@ public class HazardScoreEngine : IHazardScoreEngine
         int apiScore,
         int currentRainScore,
         double precipMmh,
-        bool weatherDataUnavailable = false)
+        bool weatherDataUnavailable = false,
+        DateTime? referenceDate = null)
     {
         // ── 1. Pesi dinamici in base al tipo geofisico IFFI ──────────────
         double wSoil = 0.40;
         double wApi  = 0.35;
         double wRain = 0.25;
 
-        if (iffiTipo == "Crollo/Ribaltamento")
+        if (iffiTipo == it.gis_landslide_detection.web.Models.IffiHazardTypes.CrolloRibaltamento)
         {
             // Roccia: non si imbeve. Conta la pioggia istantanea (fessurazione/pressione idrostatica)
             wSoil = 0.10;
             wApi  = 0.20;
             wRain = 0.70;
         }
-        else if (iffiTipo is "Scivolamento rotazionale/traslativo" or "Colamento rapido")
+        else if (iffiTipo is it.gis_landslide_detection.web.Models.IffiHazardTypes.ScivolamentoRotazionaleTraslativo or it.gis_landslide_detection.web.Models.IffiHazardTypes.ColamentoRapido)
         {
             // Terreno/Fango: saturazione e pioggia passata sono i trigger primari
             wSoil = 0.45;
@@ -59,10 +60,10 @@ public class HazardScoreEngine : IHazardScoreEngine
         // In estate (giugno-settembre) il suolo è tipicamente secco e l'API è basso.
         // L'unico segnale realistico per un flash event è la pioggia istantanea.
         // Ribilanciamo i pesi per colamento rapido e scivolamento.
-        int month = DateTime.UtcNow.Month;
+        int month = (referenceDate ?? DateTime.UtcNow).Month;
         bool isSummer = month >= 6 && month <= 9;
 
-        if (isSummer && iffiTipo is "Colamento rapido" or "Scivolamento rotazionale/traslativo")
+        if (isSummer && iffiTipo is it.gis_landslide_detection.web.Models.IffiHazardTypes.ColamentoRapido or it.gis_landslide_detection.web.Models.IffiHazardTypes.ScivolamentoRotazionaleTraslativo)
         {
             wSoil = 0.20;  // era 0.45
             wApi  = 0.35;  // era 0.40
@@ -80,13 +81,13 @@ public class HazardScoreEngine : IHazardScoreEngine
         double hazardScore = Math.Min(100.0, baseHazard * triggerMultiplier);
 
         // ── R1: Flash Event Override ─────────────────────────────────────
-        // Un temporale V-shaped (>50 mm/h) è un trigger indipendente dalla saturazione
-        // preesistente. Garantisce che zone ad alto hazard storico raggiungano CRITICAL
-        // anche con suoli asciutti (scenario 15/09/2022, 13 morti).
+        // Un temporale V-shaped (>50 mm/h) è un trigger indipendente dalla saturazione.
+        // Nelle zone mappate garantisce CRITICAL. Nelle zone non mappate (Epsilon)
+        // garantisce almeno livello HIGH (50.0) per sicurezza.
         bool flashOverrideApplied = false;
         if (precipMmh > FlashRainThresholdMmh)
         {
-            double flashFloor = baseHazard * FlashHazardFactor;
+            double flashFloor = Math.Max(baseHazard * FlashHazardFactor, 50.0);
             if (flashFloor > hazardScore)
             {
                 hazardScore = flashFloor;
@@ -113,22 +114,24 @@ public class HazardScoreEngine : IHazardScoreEngine
         hazardScore = Math.Min(100.0, hazardScore);
 
         // ── R4: Weather Data Fallback ────────────────────────────────────
-        // Se i dati meteo non sono disponibili, eleviamo precauzionalmente il pericolosità di uno step.
-        // Un sistema di sicurezza non deve mai abbassare il pericolosità per assenza di dati.
+        // Sistema B2B (Protezione Civile): assenza di dati non deve generare falsi
+        // positivi (alert fatigue). Segnaliamo esplicitamente lo stato UNKNOWN.
+        string level;
         if (weatherDataUnavailable)
         {
-            if (hazardScore < 30.0) hazardScore = 30.0;
-            else if (hazardScore < 50.0) hazardScore = 50.0;
-            else if (hazardScore < 75.0) hazardScore = 75.0;
+            hazardScore = -1.0; // Valore convenzionale per assenza dati
+            level = "UNKNOWN";
         }
-
-        string level = hazardScore switch
+        else
         {
-            >= 75 => "CRITICAL",
-            >= 50 => "HIGH",
-            >= 30 => "MEDIUM",
-            _     => "LOW"
-        };
+            level = hazardScore switch
+            {
+                >= 75 => "CRITICAL",
+                >= 50 => "HIGH",
+                >= 30 => "MEDIUM",
+                _     => "LOW"
+            };
+        }
 
         return new HazardAssessment(
             HazardScore:               hazardScore,

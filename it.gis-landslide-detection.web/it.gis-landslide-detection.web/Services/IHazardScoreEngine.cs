@@ -1,4 +1,4 @@
-﻿namespace it.gis_landslide_detection.web.Services;
+namespace it.gis_landslide_detection.web.Services;
 
 /// <summary>
 /// Motore di calcolo del pericolosità finale: combina hazard storico IFFI,
@@ -14,7 +14,8 @@ public interface IHazardScoreEngine
         int apiScore,
         int currentRainScore,
         double precipMmh,
-        bool weatherDataUnavailable = false
+        bool weatherDataUnavailable = false,
+        DateTime? referenceDate = null
     );
 }
 

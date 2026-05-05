@@ -1,25 +1,27 @@
-﻿using it.gis_landslide_detection.web.Models;
+using it.gis_landslide_detection.web.Models;
 using NetTopologySuite.Geometries;
 
 namespace it.gis_landslide_detection.web.Services;
 
 public class TrailHazardCalculator : ITrailHazardCalculator
 {
+    private static readonly Point DefaultMapCenter = new Point(13.003, 43.098);
+
     public static readonly string[] TipiPericolosi = {
-        "Colamento rapido",
-        "Crollo/Ribaltamento",
-        "Scivolamento rotazionale/traslativo",
-        "Complesso"
+        IffiHazardTypes.ColamentoRapido,
+        IffiHazardTypes.CrolloRibaltamento,
+        IffiHazardTypes.ScivolamentoRotazionaleTraslativo,
+        IffiHazardTypes.Complesso
     };
 
     private static double GetHazardScore(string? tipo)
     {
         return tipo switch
         {
-            "Colamento rapido" => 100.0,
-            "Crollo/Ribaltamento" => 80.0,
-            "Scivolamento rotazionale/traslativo" => 60.0,
-            "Complesso" => 40.0,
+            IffiHazardTypes.ColamentoRapido => 100.0,
+            IffiHazardTypes.CrolloRibaltamento => 80.0,
+            IffiHazardTypes.ScivolamentoRotazionaleTraslativo => 60.0,
+            IffiHazardTypes.Complesso => 40.0,
             _ => 0.0
         };
     }
@@ -39,8 +41,8 @@ public class TrailHazardCalculator : ITrailHazardCalculator
                 TrailName: trail.Name,
                 HasHazard: false,
                 Message: "Nessuna intersezione con aree franose rilevata. Il sentiero è sicuro dal punto di vista storico.",
-                ReferenceLat: sentieroCentroid?.Y ?? 43.098,
-                ReferenceLng: sentieroCentroid?.X ?? 13.003,
+                ReferenceLat: sentieroCentroid?.Y ?? DefaultMapCenter.Y,
+                ReferenceLng: sentieroCentroid?.X ?? DefaultMapCenter.X,
                 IffiTipo: null,
                 ZoneCount: 0,
                 HazardScore: 0.0
@@ -66,7 +68,7 @@ public class TrailHazardCalculator : ITrailHazardCalculator
             if (trailCentroid != null && double.IsFinite(trailCentroid.X) && double.IsFinite(trailCentroid.Y))
                 puntoCritico = trailCentroid;
             else
-                puntoCritico = new Point(13.003, 43.098); // fallback assoluto
+                puntoCritico = DefaultMapCenter; // fallback assoluto
         }
 
         return new TrailHazardResult(
@@ -97,9 +99,9 @@ public class TrailHazardCalculator : ITrailHazardCalculator
                 if (candidato != null && double.IsFinite(candidato.X) && double.IsFinite(candidato.Y))
                     return candidato;
             }
-            catch
+            catch (TopologyException)
             {
-                // TopologyException o simili: fallback garantito
+                // Fallback garantito in caso di topologia invalida
             }
         }
 
