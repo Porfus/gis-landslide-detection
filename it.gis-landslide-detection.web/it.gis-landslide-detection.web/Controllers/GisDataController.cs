@@ -131,12 +131,21 @@ namespace it.gis_landslide_detection.web.Controllers
         }
 
         // GET: api/GisData/nearest
+        // type: filtro opzionale per tipologia POI (es. "Baita", "PuntoRistoro").
+        // Senza type ritorna i `limit` punti più vicini di qualunque tipo;
+        // con type filtra prima per tipologia e poi ordina per distanza.
         [HttpGet("nearest")]
-        public async Task<IActionResult> GetNearestPoints([FromQuery] double lat, [FromQuery] double lng, [FromQuery] int limit = 5)
+        public async Task<IActionResult> GetNearestPoints([FromQuery] double lat, [FromQuery] double lng, [FromQuery] int limit = 5, [FromQuery] string? type = null)
         {
             var location = _geometryFactory.CreatePoint(new Coordinate(lng, lat));
 
-            var points = await _context.GisPoints
+            var query = _context.GisPoints.AsQueryable();
+            if (!string.IsNullOrEmpty(type))
+            {
+                query = query.Where(p => p.Type == type);
+            }
+
+            var points = await query
                 .OrderBy(p => p.Geom!.Distance(location))
                 .Take(limit)
                 .ToListAsync();

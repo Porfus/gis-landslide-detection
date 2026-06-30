@@ -490,7 +490,10 @@ function toggleNearest() {
     clearMode();
     state.mode = 'nearest';
     document.getElementById('btn-nearest').classList.add('active');
-    showToast('Clicca sulla mappa per trovare i 5 punti più vicini', 'success');
+    const sel = document.getElementById('nearest-type');
+    const t = sel ? sel.value : '';
+    const label = t === 'Baita' ? 'baite' : t === 'PuntoRistoro' ? 'punti ristoro' : 'POI';
+    showToast(`Clicca sulla mappa per trovare i 5 ${label} più vicini`, 'success');
 }
 
 function toggleWithin() {
@@ -610,7 +613,11 @@ async function onMapClick(e) {
     if (state.map.pm.globalDrawModeEnabled()) return;
     if (state.mode === 'nearest') {
         try {
-            const result = await apiFetch(`/api/GisData/nearest?lat=${e.latlng.lat}&lng=${e.latlng.lng}&limit=5`);
+            const sel = document.getElementById('nearest-type');
+            const typeFilter = sel ? sel.value : '';
+            let url = `/api/GisData/nearest?lat=${e.latlng.lat}&lng=${e.latlng.lng}&limit=5`;
+            if (typeFilter) url += `&type=${encodeURIComponent(typeFilter)}`;
+            const result = await apiFetch(url);
             if (state.nearestLayer) state.map.removeLayer(state.nearestLayer);
             state.nearestLayer = L.geoJSON(result, {
                 pointToLayer: (f, ll) => L.circleMarker(ll, {
@@ -620,7 +627,8 @@ async function onMapClick(e) {
             }).addTo(state.map);
             L.circleMarker(e.latlng, { radius: 5, fillColor: '#ff4060', color: '#fff', weight: 2, fillOpacity: 1 }).addTo(state.nearestLayer);
             const count = result?.features?.length || 0;
-            showToast(`${count} punti più vicini trovati!`, 'success');
+            const label = typeFilter === 'Baita' ? 'baite' : typeFilter === 'PuntoRistoro' ? 'punti ristoro' : 'punti';
+            showToast(`${count} ${label} più vicini trovati!`, 'success');
         } catch (err) { showToast('Errore: ' + err.message, 'error'); }
 
     } else if (state.mode === 'tsp') {

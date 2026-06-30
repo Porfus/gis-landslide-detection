@@ -83,7 +83,14 @@
             <button class="gis-btn" onclick="GIS.startDrawPolygon()" title="Disegna una zona di rischio frana">⚠️ Zona</button>
         </div>
         <div class="control-row">
-            <button class="gis-btn" id="btn-nearest" onclick="GIS.toggleNearest()" title="Clicca sulla mappa per trovare i 5 punti più vicini">🎯 Nearest</button>
+            <select id="nearest-type" class="gis-select" style="flex:1; font-size:0.78rem;" title="Filtra il Nearest per tipologia POI">
+                <option value="">🎯 Tutti i POI</option>
+                <option value="Baita">🏔️ Baite</option>
+                <option value="PuntoRistoro">☕ Punti Ristoro</option>
+            </select>
+        </div>
+        <div class="control-row">
+            <button class="gis-btn" id="btn-nearest" onclick="GIS.toggleNearest()" title="Clicca sulla mappa per trovare i 5 POI più vicini (usa il selettore qui sopra per filtrare per tipo)">🎯 Nearest</button>
             <button class="gis-btn" id="btn-within" onclick="GIS.toggleWithin()" title="Disegna un'area per trovare i punti al suo interno">🔲 Within</button>
             <button class="gis-btn" id="btn-intersection" onclick="GIS.toggleIntersection()" title="Disegna un'area per trovare i sentieri che la intersecano">🔀 Intersez.</button>
         </div>
