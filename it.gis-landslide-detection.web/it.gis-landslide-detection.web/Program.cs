@@ -46,6 +46,12 @@ builder.Services.AddScoped<IIffiZonesService, IffiZonesService>();
 builder.Services.AddScoped<IRoutingService, RoutingService>();
 builder.Services.AddScoped<ITspService, TspService>();
 
+// Refresh della topologia di routing in background (debounced): CREATE/UPDATE/DELETE
+// di un sentiero non aspettano più i 20+ secondi di refresh_routing_topology().
+builder.Services.AddSingleton<RoutingTopologyRefreshService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RoutingTopologyRefreshService>());
+builder.Services.AddSingleton<IRoutingTopologyRefreshQueue>(sp => sp.GetRequiredService<RoutingTopologyRefreshService>());
+
 
 builder.Services.AddCors(options =>
 {

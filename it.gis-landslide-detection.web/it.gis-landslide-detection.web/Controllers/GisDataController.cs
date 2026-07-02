@@ -18,13 +18,15 @@ namespace it.gis_landslide_detection.web.Controllers
         private readonly ApplicationDbContext _context;
         private readonly IRoutingService _routingService;
         private readonly ITspService _tspService;
+        private readonly IRoutingTopologyRefreshQueue _routingRefreshQueue;
         private readonly GeometryFactory _geometryFactory;
 
-        public GisDataController(ApplicationDbContext context, IRoutingService routingService, ITspService tspService)
+        public GisDataController(ApplicationDbContext context, IRoutingService routingService, ITspService tspService, IRoutingTopologyRefreshQueue routingRefreshQueue)
         {
             _context = context;
             _routingService = routingService;
             _tspService = tspService;
+            _routingRefreshQueue = routingRefreshQueue;
             _geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
         }
 
@@ -358,10 +360,11 @@ namespace it.gis_landslide_detection.web.Controllers
             _context.GisLines.Add(line);
             await _context.SaveChangesAsync();
 
-            // Aggiorna topologia di routing quando si aggiunge un sentiero
+            // Aggiorna topologia di routing quando si aggiunge un sentiero.
+            // Non bloccante: il refresh vero e proprio gira in background (debounced).
             if (line.Type == "Sentiero")
             {
-                try { await _context.Database.ExecuteSqlRawAsync("SELECT refresh_routing_topology();"); } catch { }
+                _routingRefreshQueue.RequestRefresh();
             }
 
             return Ok(new { id = line.Id, message = "Linea creata correttamente!" });
@@ -388,9 +391,9 @@ namespace it.gis_landslide_detection.web.Controllers
             
             if (line.Type == "Sentiero" || dto.Type == "Sentiero")
             {
-                try { await _context.Database.ExecuteSqlRawAsync("SELECT refresh_routing_topology();"); } catch { }
+                _routingRefreshQueue.RequestRefresh();
             }
-            
+
             return Ok(new { message = "Linea aggiornata correttamente!" });
         }
 
@@ -407,7 +410,7 @@ namespace it.gis_landslide_detection.web.Controllers
 
             if (isSentiero)
             {
-                try { await _context.Database.ExecuteSqlRawAsync("SELECT refresh_routing_topology();"); } catch { }
+                _routingRefreshQueue.RequestRefresh();
             }
 
             return Ok(new { message = "Linea eliminata correttamente!" });
